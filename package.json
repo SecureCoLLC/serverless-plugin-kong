@@ -1,0 +1,33 @@
+{
+  "name": "serverless-plugin-kong",
+  "version": "1.0.0",
+  "description": "Plugin to register lambda functions with Kong",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "lint": "eslint --ext .js index.js kong-admin-api.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/peerstream/serverless-plugin-kong.git"
+  },
+  "keywords": [
+    "serverless-plugin-kong"
+  ],
+  "author": "webteam@peerstream.com",
+  "license": "UNLICENSED",
+  "bugs": {
+    "url": "https://github.com/peerstream/serverless-plugin-kong/issues"
+  },
+  "homepage": "https://github.com/peerstream/serverless-plugin-kong#readme",
+  "devDependencies": {
+    "babel-eslint": "^8.2.3",
+    "commander": "^2.15.1",
+    "cross-env": "^5.1.6",
+    "eslint": "^4.19.1",
+    "eslint-config-airbnb-base": "^12.1.0",
+    "eslint-plugin-html": "^3.2.2",
+    "eslint-plugin-import": "^2.12.0",
+    "eslint-plugin-jsdoc": "^3.7.1"
+  }
+}
