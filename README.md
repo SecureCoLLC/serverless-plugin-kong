@@ -96,9 +96,9 @@ custom:
 
 Command to register lambda functions
 
-sls kong-register-services -s prod
+sls kong register-services -s prod
 
-sls kong-register-services -s dev
+sls kong register-services -s dev
 
 ## Contributing
 
