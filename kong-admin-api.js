@@ -432,6 +432,18 @@ class KongAdminApi {
         return response;
     }
 
+    async getPluginsRequestToRoute(routeId) {
+        let response;
+        try {
+            response = await httpHelper.request({ url: `${this.config.adminUrl}/routes/${routeId}/plugins`, method: 'GET' });
+        } catch (e) {
+            throwError(e);
+        }
+
+        return response;
+    }
+
+
     async getPluginByNameRequestToService(serviceName, pluginName) {
         let response;
         try {
