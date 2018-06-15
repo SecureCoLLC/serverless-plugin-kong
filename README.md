@@ -100,6 +100,10 @@ sls kong register-services -s prod
 
 sls kong register-services -s dev
 
+sls kong update-service -s prod -n example-service
+
+sls kong remove-service -s prod -n example-service
+
 ## Contributing
 
 We welcome pull requests! Please fork the repo and submit your PR.

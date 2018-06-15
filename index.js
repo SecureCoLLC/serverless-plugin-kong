@@ -16,109 +16,6 @@ const confirm = message => new Promise(resolve => {
     });
 });
 
-const getConfigurations = (serverless, serviceName) => {
-    let services;
-
-    if (serviceName) {
-        services = (serverless.service.custom.kong.services || []).filter(service => service.name === serviceName);
-    } else {
-        services = serverless.service.custom.kong.services || [];
-    }
-
-    if (!services.length) {
-        const message = serviceName
-            ? `There is no service configured with this name "${this.options.service}"`
-            : 'There is no service configured to register';
-        serverless.cli.log(message);
-    }
-
-    return services;
-};
-
-const createService = async (serverless, kongAdminApi, serviceName, host) => {
-    const isServiceExist = await kongAdminApi.isServiceExist(serviceName);
-
-    if (!isServiceExist) {
-        serverless.cli.log(`Creating a service ${serviceName}`);
-        await kongAdminApi.createService(serviceName, host);
-    } else {
-        serverless.cli.log(`The service "${serviceName}" is already exist`);
-    }
-};
-
-// NOTE: We use await inside for loop. If we use Promise.all, we get 500 error from kong. Ref: https://github.com/Kong/kong/issues/3440
-
-const createOrUpdateServicePlugins = async (serverless, kongAdminApi, serviceName, servicePlugins) => {
-    for (let pluginIndex = 0; pluginIndex < servicePlugins.length; pluginIndex++) {
-        const pluginConfig = servicePlugins[pluginIndex];
-        const response = await kongAdminApi.getPluginByNameRequestToService(
-            serviceName,
-            pluginConfig.name
-        );
-        const plugin = (response || {}).result || {};
-        if (!plugin.id) {
-            serverless.cli.log(`Creating a service plugin "${pluginConfig.name}"`);
-            await kongAdminApi.createPluginRequestToService(serviceName, pluginConfig);
-        } else {
-            serverless.cli.log(`Updating the service plugin "${pluginConfig.name}"`);
-            await kongAdminApi.updatePlugin(plugin.id, pluginConfig);
-        }
-    }
-};
-
-const createOrUpdateRoutes = async (serverless, kongAdminApi, serviceName, routeConfig) => {
-    const grResponse = await kongAdminApi.getRouteByHostsAndPaths(
-        serviceName,
-        routeConfig.config.hosts,
-        routeConfig.config.paths
-    );
-    let route = (grResponse && grResponse.result) || null;
-
-    if (!route) {
-        serverless.cli.log(`Creating a route. Hosts: ${routeConfig.config.hosts}; Paths: ${routeConfig.config.paths}`);
-        const response = await kongAdminApi.createRoute(serviceName, routeConfig.config);
-        route = ((response || {}).result || {});
-    } else {
-        serverless.cli.log(`Updating route. Hosts: ${routeConfig.config.hosts}; Paths: ${routeConfig.config.paths}`);
-        await kongAdminApi.updateRoute(route.id, routeConfig.config);
-    }
-
-    return route;
-};
-
-const createOrUpdateRoutePlugins = async (serverless, kongAdminApi, route, routePlugins) => {
-    if (!route.id) {
-        return;
-    }
-
-    for (let pluginIndex = 0; pluginIndex < routePlugins.length; pluginIndex++) {
-        const pluginConfig = routePlugins[pluginIndex];
-        const res = await kongAdminApi.getPluginByNameRequestToRoute(
-            route.id,
-            pluginConfig.name
-        );
-        const plugin = (res || {}).result || {};
-
-        if (!plugin.id) {
-            serverless.cli.log(`Creating a route plugin "${pluginConfig.name}"`);
-            await kongAdminApi.createPluginRequestToRoute(route.id, pluginConfig);
-        } else {
-            serverless.cli.log(`Updating the route plugin "${pluginConfig.name}"`);
-            await kongAdminApi.updatePlugin(plugin.id, pluginConfig);
-        }
-    }
-};
-
-const getServicePluginsRemovedFromConfig = async (serverless, kongAdminApi, serviceName, servicePlugins) => {
-    const response = await kongAdminApi.getPluginsRequestToService(serviceName);
-    const registeredPlugins = response.result.data || [];
-    const servicePluginNamesInConfig = servicePlugins.map(plugin => plugin.name);
-
-    const removedPlugins = registeredPlugins.filter(plugin => servicePluginNamesInConfig.indexOf(plugin.name) === -1);
-    console.log(servicePluginNamesInConfig);
-    console.log(removedPlugins);
-};
-
 class ServerlessPlugin {
     constructor(serverless, options) {
         this.serverless = serverless;
@@ -178,9 +75,130 @@ class ServerlessPlugin {
         };
     }
 
+    getConfigurations(serviceName) {
+        let services;
+
+        if (serviceName) {
+            services = (this.serverless.service.custom.kong.services || []).filter(service =>
+                service.name === serviceName);
+        } else {
+            services = this.serverless.service.custom.kong.services || [];
+        }
+
+        if (!services.length) {
+            const message = serviceName
+                ? `There is no service configured with this name "${this.options.service}"`
+                : 'There is no service configured to register';
+            this.serverless.cli.log(message);
+        }
+
+        return services;
+    }
+
+    async createService(serviceName, host) {
+        const isServiceExist = await this.kongAdminApi.isServiceExist(serviceName);
+
+        if (!isServiceExist) {
+            this.serverless.cli.log(`Creating a service ${serviceName}`);
+            await this.kongAdminApi.createService(serviceName, host);
+        } else {
+            this.serverless.cli.log(`The service "${serviceName}" is already exist`);
+        }
+    }
+
+    // NOTE: We use await inside for loop. If we use Promise.all, we get 500 error from kong. Ref: https://github.com/Kong/kong/issues/3440
+
+    async createOrUpdateServicePlugins(serviceName, servicePlugins) {
+        for (let pluginIndex = 0; pluginIndex < servicePlugins.length; pluginIndex++) {
+            const pluginConfig = servicePlugins[pluginIndex];
+            const response = await this.kongAdminApi.getPluginByNameRequestToService(
+                serviceName,
+                pluginConfig.name
+            );
+            const plugin = (response || {}).result || {};
+            if (!plugin.id) {
+                this.serverless.cli.log(`Creating a service plugin "${pluginConfig.name}"`);
+                await this.kongAdminApi.createPluginRequestToService(serviceName, pluginConfig);
+            } else {
+                this.serverless.cli.log(`Updating the service plugin "${pluginConfig.name}"`);
+                await this.kongAdminApi.updatePlugin(plugin.id, pluginConfig);
+            }
+        }
+    }
+
+    async createOrUpdateRoutes(serviceName, routeConfig) {
+        const grResponse = await this.kongAdminApi.getRouteByHostsAndPaths(
+            serviceName,
+            routeConfig.config.hosts,
+            routeConfig.config.paths
+        );
+        let route = (grResponse && grResponse.result) || null;
+
+        if (!route) {
+            this.serverless.cli.log(`Creating a route. Hosts: ${routeConfig.config.hosts}; Paths: ${routeConfig.config.paths}`);
+            const response = await this.kongAdminApi.createRoute(serviceName, routeConfig.config);
+            route = ((response || {}).result || {});
+        } else {
+            this.serverless.cli.log(`Updating route. Hosts: ${routeConfig.config.hosts}; Paths: ${routeConfig.config.paths}`);
+            await this.kongAdminApi.updateRoute(route.id, routeConfig.config);
+        }
+
+        return route;
+    }
+
+    async createOrUpdateRoutePlugins(route, routePlugins) {
+        if (!route.id) {
+            return;
+        }
+
+        for (let pluginIndex = 0; pluginIndex < routePlugins.length; pluginIndex++) {
+            const pluginConfig = routePlugins[pluginIndex];
+            const res = await this.kongAdminApi.getPluginByNameRequestToRoute(
+                route.id,
+                pluginConfig.name
+            );
+            const plugin = (res || {}).result || {};
+
+            if (!plugin.id) {
+                this.serverless.cli.log(`Creating a route plugin "${pluginConfig.name}"`);
+                await this.kongAdminApi.createPluginRequestToRoute(route.id, pluginConfig);
+            } else {
+                this.serverless.cli.log(`Updating the route plugin "${pluginConfig.name}"`);
+                await this.kongAdminApi.updatePlugin(plugin.id, pluginConfig);
+            }
+        }
+    }
+
+    async getServicePluginsRemovedFromConfig(serviceName, servicePlugins) {
+        const response = await this.kongAdminApi.getPluginsRequestToService(serviceName);
+        const registeredPlugins = response.result.data || [];
+        const servicePluginNamesInConfig = servicePlugins.map(plugin => plugin.name);
+
+        const removedPlugins = registeredPlugins.filter(plugin =>
+            servicePluginNamesInConfig.indexOf(plugin.name) === -1);
+        return removedPlugins;
+    }
+
+    async getRoutePluginsRemovedFromConfig(routeId, routePlugins) {
+        const response = await this.kongAdminApi.getPluginsRequestToRoute(routeId);
+        const registeredPlugins = response.result.data || [];
+        const routePluginNamesInConfig = routePlugins.map(plugin => plugin.name);
+
+        const removedPlugins = registeredPlugins.filter(plugin => routePluginNamesInConfig.indexOf(plugin.name) === -1);
+        return removedPlugins;
+    }
+
+    async removePlugins(plugins) {
+        for (let index = 0; index < plugins.length; index++) {
+            const plugin = plugins[index];
+            this.serverless.cli.log(`Removing plugin: ${plugin.name}`);
+            await this.kongAdminApi.removePlugin(plugin.id);
+        }
+    }
+
     async registerService() {
         try {
-            const services = getConfigurations(this.serverless, this.options.service);
+            const services = this.getConfigurations(this.options.service);
 
             for (let serviceIndex = 0; serviceIndex < services.length; serviceIndex++) {
                 const serviceConfig = services[serviceIndex];
@@ -194,19 +212,17 @@ class ServerlessPlugin {
                     return;
                 }
 
-                await createService(this.serverless, this.kongAdminApi, serviceConfig.name, serviceConfig.host);
+                await this.createService(serviceConfig.name, serviceConfig.host);
 
-                await createOrUpdateServicePlugins(
-                    this.serverless, this.kongAdminApi, serviceConfig.name, servicePlugins);
+                await this.createOrUpdateServicePlugins(serviceConfig.name, servicePlugins);
 
                 for (let routeIndex = 0; routeIndex < routes.length; routeIndex++) {
                     const routeConfig = routes[routeIndex];
                     const routePlugins = routeConfig.plugins || [];
 
-                    const route = await createOrUpdateRoutes(
-                        this.serverless, this.kongAdminApi, serviceConfig.name, routeConfig);
+                    const route = await this.createOrUpdateRoutes(serviceConfig.name, routeConfig);
 
-                    await createOrUpdateRoutePlugins(this.serverless, this.kongAdminApi, route, routePlugins);
+                    await this.createOrUpdateRoutePlugins(route, routePlugins);
                 }
             }
         } catch (e) {
@@ -216,7 +232,7 @@ class ServerlessPlugin {
 
     async updateService() {
         try {
-            const services = getConfigurations(this.serverless, this.options.service);
+            const services = this.getConfigurations(this.options.service);
 
             for (let serviceIndex = 0; serviceIndex < services.length; serviceIndex++) {
                 const serviceConfig = services[serviceIndex];
@@ -230,26 +246,31 @@ class ServerlessPlugin {
                     return;
                 }
 
-                await getServicePluginsRemovedFromConfig(
-                    this.serverless, this.kongAdminApi, serviceConfig.name, servicePlugins);
-
                 const answer = await confirm(`Do you want to update the service "${serviceConfig.name}"? \nEnter "YES" to update: `);
 
                 if (answer !== 'YES') {
                     return;
                 }
 
-                await createOrUpdateServicePlugins(
-                    this.serverless, this.kongAdminApi, serviceConfig.name, servicePlugins);
+                await this.createOrUpdateServicePlugins(serviceConfig.name, servicePlugins);
+
+                const servicePluginsRemovedFromConfig = await this.getServicePluginsRemovedFromConfig(
+                    serviceConfig.name, servicePlugins);
+
+                await this.removePlugins(servicePluginsRemovedFromConfig);
 
                 for (let routeIndex = 0; routeIndex < routes.length; routeIndex++) {
                     const routeConfig = routes[routeIndex];
                     const routePlugins = routeConfig.plugins || [];
 
-                    const route = await createOrUpdateRoutes(
-                        this.serverless, this.kongAdminApi, serviceConfig.name, routeConfig);
+                    const route = await this.createOrUpdateRoutes(serviceConfig.name, routeConfig);
 
-                    await createOrUpdateRoutePlugins(this.serverless, this.kongAdminApi, route, routePlugins);
+                    await this.createOrUpdateRoutePlugins(route, routePlugins);
+
+                    const routePluginsRemovedFromConfig = await this.getRoutePluginsRemovedFromConfig(
+                        route.id, routePlugins);
+
+                    await this.removePlugins(routePluginsRemovedFromConfig);
                 }
             }
         } catch (e) {
