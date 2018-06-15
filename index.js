@@ -8,7 +8,7 @@ class ServerlessPlugin {
         this.options = options;
         this.kongAdminApi = new KongAdminApi({ adminUrl: this.serverless.service.custom.kong.adminApiUrl });
         this.commands = {
-            kong: {
+            'kong-register-services': {
                 usage: 'Helps you create service and routes in kong',
                 lifecycleEvents: [
                     'register'
@@ -17,10 +17,10 @@ class ServerlessPlugin {
         };
 
         this.hooks = {
-            'kong:register': this.registerService.bind(this),
+            'kong-register-services:register': this.registerService.bind(this),
         };
     }
-
+    // NOTE: We use await inside for loop. If we use Promise.all, we get 500 error from kong. Ref: https://github.com/Kong/kong/issues/3440
     async registerService() {
         try {
             const services = this.serverless.service.custom.kong.services || [];
