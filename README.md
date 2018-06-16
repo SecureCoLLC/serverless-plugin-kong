@@ -100,6 +100,8 @@ sls kong register-services -s prod
 
 sls kong register-services -s dev
 
+ sls kong register-services -n example-service
+
 sls kong update-service -s prod -n example-service
 
 sls kong remove-service -s prod -n example-service

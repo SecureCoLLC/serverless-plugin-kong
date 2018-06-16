@@ -5,12 +5,15 @@ const STATUS_CODES = {
     OK: 200
 };
 
-const throwError = e => {
+// Helper function to parse and throw an error
+const throwError = exception => {
     let message;
-    if (typeof e === 'object') {
-        message = JSON.stringify((e));
+    if (exception instanceof Error) {
+        message = exception;
+    } else if (typeof exception === 'object') {
+        message = JSON.stringify((exception));
     } else {
-        message = e;
+        message = exception;
     }
 
     throw new Error(message);
@@ -41,7 +44,7 @@ class KongAdminApi {
             const service = await httpHelper.request({ url: `${this.config.adminUrl}/services/${serviceName}`, method: 'GET' });
 
             if (service.statusCode === STATUS_CODES.OK) {
-                throwError(`Service "${serviceName}" is already exist`);
+                throw new Error(`Service "${serviceName}" is already exist`);
             }
 
             response = await httpHelper.request({
@@ -53,7 +56,7 @@ class KongAdminApi {
                 }
             });
         } catch (e) {
-            throwError(e);
+            throw e;
         }
 
         return response;
@@ -67,10 +70,39 @@ class KongAdminApi {
                 method: 'DELETE'
             });
         } catch (e) {
-            throwError(e);
+            throw e;
         }
 
         return response;
+    }
+
+    generateUniqueKeyForRoute(routeConfig) {
+        let key = '';
+        const fields = [];
+
+        if (!routeConfig) {
+            return key;
+        }
+
+        const hosts = (routeConfig.hosts && routeConfig.hosts.sort().join(',')) || '';
+        const paths = (routeConfig.paths && routeConfig.paths.sort().join(',')) || '';
+        const methods = (routeConfig.methods && routeConfig.methods.sort().join(',')) || '';
+
+        if (hosts) {
+            fields.push(hosts);
+        }
+
+        if (paths) {
+            fields.push(paths);
+        }
+
+        if (methods) {
+            fields.push(methods);
+        }
+
+        key = fields.join('|');
+
+        return key;
     }
 
     async createRoute(serviceName, data) {
@@ -79,7 +111,7 @@ class KongAdminApi {
             const service = await httpHelper.request({ url: `${this.config.adminUrl}/services/${serviceName}`, method: 'GET' });
 
             if (service.statusCode === STATUS_CODES.NOT_FOUND) {
-                throwError(`Service "${serviceName}" is not exist`);
+                throw new Error(`Service "${serviceName}" is not exist`);
             }
 
             const routeData = Object.assign({ service: { id: service.result.id } }, data);
@@ -90,7 +122,7 @@ class KongAdminApi {
                 data: routeData
             });
         } catch (e) {
-            throwError(e);
+            throw e;
         }
 
         return response;
@@ -106,7 +138,7 @@ class KongAdminApi {
                 data: routeConfig
             });
         } catch (e) {
-            throwError(e);
+            throw e;
         }
 
         return response;
@@ -120,7 +152,7 @@ class KongAdminApi {
                 method: 'DELETE'
             });
         } catch (e) {
-            throwError(e);
+            throw e;
         }
 
         return response;
@@ -131,7 +163,7 @@ class KongAdminApi {
         try {
             response = await httpHelper.request({ url: `${this.config.adminUrl}/routes/${routeId}`, method: 'GET' });
         } catch (e) {
-            throwError(e);
+            throw e;
         }
         return response;
     }
@@ -142,7 +174,7 @@ class KongAdminApi {
             const res = await httpHelper.request({ url: `${this.config.adminUrl}/services/${serviceName}/routes`, method: 'GET' });
             const routes = ((res.result || {}).data || []).filter(route => {
                 let hasHost = false;
-                route.hosts.forEach(host => {
+                (route.hosts || []).forEach(host => {
                     if (host === hostName) {
                         hasHost = true;
                     }
@@ -155,7 +187,7 @@ class KongAdminApi {
 
             response = { statusCode, result: routes };
         } catch (e) {
-            throwError(e);
+            throw e;
         }
 
         return response;
@@ -181,33 +213,20 @@ class KongAdminApi {
 
             response = { statusCode, result: routes };
         } catch (e) {
-            throwError(e);
+            throw e;
         }
 
         return response;
     }
 
-    async getRouteByHostsAndPaths(serviceName, hosts, paths) {
+    async getRouteByConfig(serviceName, routeConfig) {
         let response;
+        const requestedRouteKey = this.generateUniqueKeyForRoute(routeConfig);
         try {
             const res = await httpHelper.request({ url: `${this.config.adminUrl}/services/${serviceName}/routes`, method: 'GET' });
             const routes = ((res.result || {}).data || []).filter(route => {
-                let hasHost = false;
-                let hasPath = false;
-
-                route.hosts.forEach(host => {
-                    if (hosts.indexOf(host) >= 0) {
-                        hasHost = true;
-                    }
-                });
-
-                route.paths.some(path => {
-                    if (paths.indexOf(path) >= 0) {
-                        hasPath = true;
-                    }
-                });
-
-                return hasPath && hasHost;
+                const routeKey = this.generateUniqueKeyForRoute(route);
+                return requestedRouteKey === routeKey;
             });
 
             const route = routes[0] || null;
@@ -215,7 +234,7 @@ class KongAdminApi {
 
             response = { statusCode, result: route };
         } catch (e) {
-            throwError(e);
+            throw e;
         }
 
         return response;
@@ -226,7 +245,7 @@ class KongAdminApi {
         try {
             response = await httpHelper.request({ url: `${this.config.adminUrl}/services/${serviceName}/routes`, method: 'GET' });
         } catch (e) {
-            throwError(e);
+            throw e;
         }
 
         return response;
@@ -238,7 +257,7 @@ class KongAdminApi {
             const res = await httpHelper.request({ url: `${this.config.adminUrl}/services/${serviceName}`, method: 'GET' });
 
             if (res.statusCode === STATUS_CODES.NOT_FOUND) {
-                throwError(`Service "${serviceName}" is not exist`);
+                throw new Error(`Service "${serviceName}" is not exist`);
             }
 
             response = await httpHelper.request({
@@ -247,7 +266,7 @@ class KongAdminApi {
                 data: pluginConfig
             });
         } catch (e) {
-            throwError(e);
+            throw e;
         }
 
         return response;
@@ -259,7 +278,7 @@ class KongAdminApi {
             const service = await httpHelper.request({ url: `${this.config.adminUrl}/services/${serviceName}`, method: 'GET' });
 
             if (service.statusCode === STATUS_CODES.NOT_FOUND) {
-                throwError(`The service "${serviceName}" is not exist`);
+                throw new Error(`The service "${serviceName}" is not exist`);
             }
 
             const plugins = await httpHelper.request({ url: `${this.config.adminUrl}/services/${serviceName}/plugins`, method: 'GET' });
@@ -268,7 +287,7 @@ class KongAdminApi {
             const plugin = filteredPlugin[0] || null;
 
             if (!plugin) {
-                throwError(`The plugin "${pluginName}" is not configured with this service "${serviceName}"`);
+                throw new Error(`The plugin "${pluginName}" is not configured with this service "${serviceName}"`);
             }
 
             response = await httpHelper.request({
@@ -277,7 +296,7 @@ class KongAdminApi {
                 data: pluginConfig
             });
         } catch (e) {
-            throwError(e);
+            throw e;
         }
 
         return response;
@@ -298,7 +317,7 @@ class KongAdminApi {
                 data: pluginConfig
             });
         } catch (e) {
-            throwError(e);
+            throw e;
         }
         return response;
     }
@@ -318,7 +337,7 @@ class KongAdminApi {
             const plugin = filteredPlugin[0] || null;
 
             if (!plugin) {
-                throwError(`The plugin "${pluginName}" is not configured with this route "${routeId}"`);
+                throw new Error(`The plugin "${pluginName}" is not configured with this route "${routeId}"`);
             }
 
             response = await httpHelper.request({
@@ -327,7 +346,7 @@ class KongAdminApi {
                 data: pluginConfig
             });
         } catch (e) {
-            throwError(e);
+            throw e;
         }
         return response;
     }
@@ -341,13 +360,13 @@ class KongAdminApi {
                 data: pluginConfig
             });
         } catch (e) {
-            throwError(e);
+            throw e;
         }
 
         return response;
     }
 
-    async removePlugin(pluginId) {
+    async deletePlugin(pluginId) {
         let response;
         try {
             response = await httpHelper.request({
@@ -355,13 +374,13 @@ class KongAdminApi {
                 method: 'DELETE'
             });
         } catch (e) {
-            throwError(e);
+            throw e;
         }
 
         return response;
     }
 
-    async removePluginRequestToService(serviceName, pluginName) {
+    async deletePluginRequestToService(serviceName, pluginName) {
         let response;
 
         try {
@@ -372,7 +391,7 @@ class KongAdminApi {
             const plugin = filteredPlugin[0] || null;
 
             if (!filteredPlugin[0]) {
-                throwError(`There is no plugin exist with this name "${pluginName}" `);
+                throw new Error(`There is no plugin exist with this name "${pluginName}" `);
             }
 
             response = await httpHelper.request({
@@ -380,13 +399,13 @@ class KongAdminApi {
                 method: 'DELETE'
             });
         } catch (e) {
-            throwError(e);
+            throw e;
         }
 
         return response;
     }
 
-    async removePluginRequestToRoute(routeId, pluginName) {
+    async deletePluginRequestToRoute(routeId, pluginName) {
         let response;
 
         try {
@@ -397,7 +416,7 @@ class KongAdminApi {
             const plugin = filteredPlugin[0] || null;
 
             if (!filteredPlugin[0]) {
-                throwError(`There is no plugin exist with this name "${pluginName}" `);
+                throw new Error(`There is no plugin exist with this name "${pluginName}" `);
             }
 
             response = await httpHelper.request({
@@ -405,7 +424,7 @@ class KongAdminApi {
                 method: 'DELETE'
             });
         } catch (e) {
-            throwError(e);
+            throw e;
         }
 
         return response;
@@ -416,7 +435,7 @@ class KongAdminApi {
         try {
             response = await httpHelper.request({ url: `${this.config.adminUrl}/plugins/${pluginId}`, method: 'GET' });
         } catch (e) {
-            throwError(e);
+            throw e;
         }
         return response;
     }
@@ -426,7 +445,7 @@ class KongAdminApi {
         try {
             response = await httpHelper.request({ url: `${this.config.adminUrl}/services/${serviceName}/plugins`, method: 'GET' });
         } catch (e) {
-            throwError(e);
+            throw e;
         }
 
         return response;
@@ -437,7 +456,7 @@ class KongAdminApi {
         try {
             response = await httpHelper.request({ url: `${this.config.adminUrl}/routes/${routeId}/plugins`, method: 'GET' });
         } catch (e) {
-            throwError(e);
+            throw e;
         }
 
         return response;
@@ -456,7 +475,7 @@ class KongAdminApi {
 
             return { statusCode, result: plugin };
         } catch (e) {
-            throwError(e);
+            throw e;
         }
         return response;
     }
@@ -473,7 +492,7 @@ class KongAdminApi {
             const statusCode = (plugin && plugins.statusCode) || STATUS_CODES.NOT_FOUND;
             response = { statusCode, result: plugin };
         } catch (e) {
-            throwError(e);
+            throw e;
         }
 
         return response;
@@ -487,7 +506,7 @@ class KongAdminApi {
                 isExist = true;
             }
         } catch (e) {
-            throwError(e);
+            throw e;
         }
 
         return isExist;
@@ -505,7 +524,7 @@ class KongAdminApi {
                 isExist = true;
             }
         } catch (e) {
-            throwError(e);
+            throw e;
         }
 
         return isExist;

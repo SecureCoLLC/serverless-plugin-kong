@@ -66,7 +66,7 @@ const request = async ({url, method, data, headers}) => {
                     }
 
                     if(response.statusCode !== 200) {
-                       reject(resp);
+                       reject(JSON.stringify(resp));
                        return;
                     }
 
