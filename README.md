@@ -96,15 +96,15 @@ custom:
 
 Command to register lambda functions
 
-sls kong register-services -s prod
+sls kong create-services -s prod
 
-sls kong register-services -s dev
+sls kong create-services -s dev
 
- sls kong register-services -n example-service
+ sls kong create-services -n example-service
 
 sls kong update-service -s prod -n example-service
 
-sls kong remove-service -s prod -n example-service
+sls kong delete-service -s prod -n example-service
 
 ## Contributing
 
