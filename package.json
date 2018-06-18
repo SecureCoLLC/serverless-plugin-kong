@@ -23,16 +23,16 @@
   "devDependencies": {
     "babel-eslint": "^8.2.3",
     "babel-register": "^6.24.1",
+    "chai": "^4.1.2",
     "commander": "^2.15.1",
     "cross-env": "^5.1.6",
+    "dirty-chai": "^2.0.1",
     "eslint": "^4.19.1",
     "eslint-config-airbnb-base": "^12.1.0",
     "eslint-plugin-html": "^3.2.2",
     "eslint-plugin-import": "^2.12.0",
     "eslint-plugin-jsdoc": "^3.7.1",
-    "chai": "^4.1.2",
-    "dirty-chai": "^2.0.1",
-    "mocha": "^3.5.3",
+    "mocha": "^5.2.0",
     "nyc": "^11.8.0"
   }
 }
