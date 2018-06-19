@@ -81,6 +81,15 @@ const request = async ({
     }
 });
 
+const create = ({ url, headers }) => async ({ path, method, data }) => {
+    const result = await request({
+        url: `${url}${path}`, method, data, headers
+    });
+
+    return result;
+};
+
 module.exports = {
-    request
+    request,
+    create
 };

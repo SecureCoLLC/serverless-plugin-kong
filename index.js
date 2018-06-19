@@ -7,6 +7,9 @@ const KongAdminApi = require('./kong-admin-api');
 
 const readline = require('readline');
 
+// Here upstream service is our lambda function, that's we just set the dummy upstream url 'http://127.0.0.1:80/'
+const defaultUpstreamUrl = 'http://127.0.0.1:80/';
+
 // Helper function to get an approval before do an action
 const confirm = message => new Promise(resolve => {
     const rl = readline.createInterface({
@@ -20,45 +23,67 @@ const confirm = message => new Promise(resolve => {
     });
 });
 
+const buildRouteConfig = config => {
+    if (!config) {
+        return config;
+    }
+
+    // Construct route config object in the format the kong admin api expect.
+    const kongRouteConfig = {};
+    if (config.path) {
+        kongRouteConfig.paths = [config.path];
+    }
+
+    if (config.method) {
+        kongRouteConfig.methods = [config.method.toUpperCase()];
+    }
+
+    if (config.host) {
+        kongRouteConfig.hosts = [config.host];
+    }
+
+    return kongRouteConfig;
+};
+
 // Serverless plugin custom commands and lifecycle events
 const commands = {
     kong: {
-        usage: 'Helps you create service and routes in kong',
+        usage: 'Helps you create/update/delete services and routes registered with kong. e.g. sls kong create-services',
         commands: {
-            'create-services': {
-                usage: 'Helps you create a service and routes in kong',
+            'create-routes': {
+                usage: 'Helps you create routes in kong',
                 lifecycleEvents: [
-                    'create-services'
+                    'create-routes'
                 ],
                 options: {
-                    service: {
-                        usage: 'Specify the service you want to register (e.g. "--service myService" "-n myService")',
+                    'function-name': {
+                        usage: 'Specify the name of the function for which you want to create route entry in Kong (e.g. "--function-name example1" "-n example1")',
                         shortcut: 'n',
                         required: false
                     },
                 }
             },
-            'delete-service': {
-                usage: 'Helps you remove a service and routes from kong',
+            'delete-route': {
+                usage: 'Helps you remove route from kong',
                 lifecycleEvents: [
-                    'delete-service'
+                    'delete-route'
                 ],
                 options: {
-                    service: {
-                        usage: 'Specify the service you want to register (e.g. "--service myService" "-n myService")',
+                    'function-name': {
+                        usage: 'Specify the name of the function for which you want to delete route entry from Kong (e.g. "--function-name example1" "-n example1")',
                         shortcut: 'n',
                         required: true
                     },
                 }
             },
-            'update-service': {
-                usage: 'Helps you update a service and routes register with Kong',
+            'update-route': {
+                usage: 'Helps you update the route config in the Kong',
                 lifecycleEvents: [
-                    'update-service'
+                    'update-route'
                 ],
                 options: {
-                    service: {
-                        usage: 'Specify the service you want to register (e.g. "--service myService" "-n myService")',
+                    'function-name': {
+                        usage: 'Specify the name of the function for which you want to update the route config in kong (e.g. "--function-name example1" "-n example1")',
                         shortcut: 'n',
                         required: true
                     },
@@ -70,45 +95,68 @@ const commands = {
 
 class ServerlessPlugin {
     constructor(serverless, options) {
+        const kongAdminApiCredentials = (serverless.service.custom.kong || {}).adminApiCredentials || {};
+
         this.serverless = serverless;
         this.cli = serverless.cli;
         this.options = options;
 
-        this.kongAdminApi = new KongAdminApi({ adminUrl: this.serverless.service.custom.kong.adminApiUrl });
+        this.kongAdminApi = new KongAdminApi({
+            adminApiUrl: kongAdminApiCredentials.url, adminApiHeaders: kongAdminApiCredentials.headers
+        });
 
         this.commands = commands;
 
         this.hooks = {
-            'kong:create-services:create-services': this.createServices.bind(this),
-            'kong:update-service:update-service': this.updateService.bind(this),
-            'kong:delete-service:delete-service': this.deleteService.bind(this),
+            'kong:create-routes:create-routes': this.createRoutes.bind(this),
+            'kong:update-route:update-route': this.updateRoute.bind(this),
+            'kong:delete-route:delete-route': this.deleteRoute.bind(this),
         };
     }
 
     /**
-     * Retrieve services configured at custom section in severless config file.
-     * @param serviceName - The name of the service to retrieve. This is an optional field.
-     *                      If it's not passed, it will return all services.
+     * Retrieve route configuration for given function name
+     * @param functionName - The function name
+     * @returns {*}
+     */
+    getConfigurationByFunctionName(functionName) {
+        let route = null;
+        const functions = this.serverless.service.functions || {};
+
+        if (!functionName) {
+            throw new Error('Missing required "functionName" parameter');
+        }
+
+        const functionDef = functions[functionName] || {};
+
+        (functionDef.events || []).forEach(event => {
+            if (event.kong) {
+                route = event.kong;
+            }
+        });
+
+        return route;
+    }
+
+    /**
+     * Retrieve route configuration of each function from serverless config.
      * @returns {Object|Array[]}
      */
-    getConfigurations(serviceName) {
-        let services;
+    getConfigurations() {
+        const routes = [];
+        const functions = this.serverless.service.functions || {};
 
-        if (serviceName) {
-            services = (this.serverless.service.custom.kong.services || []).filter(service =>
-                service.name === serviceName);
-        } else {
-            services = this.serverless.service.custom.kong.services || [];
-        }
+        Object.keys(functions).forEach(key => {
+            console.log(key);
+            const functionDef = functions[key];
+            functionDef.events.forEach(event => {
+                if (event.kong) {
+                    routes.push(event.kong);
+                }
+            });
+        });
 
-        if (!services.length) {
-            const message = serviceName
-                ? `There is no service configured with this name "${this.options.service}"`
-                : 'There is no service configured to register';
-            this.cli.log(message);
-        }
-
-        return services;
+        return routes;
     }
 
     /**
@@ -169,12 +217,12 @@ class ServerlessPlugin {
     }
 
     /**
-     * Check and update the route if it is exist otherwise create.
+     * Create Route
      * @param serviceName -  The name of the Service which this route will target.
-     * @param routeConfig - The route config to create or update
+     * @param routeConfig - The route config to create
      * @returns {Promise<*|null>}
      */
-    async createOrUpdateRoute({ serviceName, routeConfig }) {
+    async createRoute({ serviceName, routeConfig }) {
         if (!serviceName) {
             throw new Error('Missing required "serviceName" parameter.');
         }
@@ -183,20 +231,22 @@ class ServerlessPlugin {
             throw new Error('Missing required "routeConfig" parameter.');
         }
 
+        // Construct route config object in the format the kong admin api expect.
+        const kongRouteConfig = buildRouteConfig(routeConfig);
+
         const grResponse = await this.kongAdminApi.getRouteByConfig({
             serviceName,
-            routeConfig: routeConfig.config
+            routeConfig: kongRouteConfig
         });
 
         let route = (grResponse && grResponse.result) || null;
 
         if (!route) {
-            this.cli.log(`Creating a route. Hosts: ${routeConfig.config.hosts}; Paths: ${routeConfig.config.paths}`);
-            const response = await this.kongAdminApi.createRoute({ serviceName, routeConfig: routeConfig.config });
+            this.cli.log(`Creating a route. ${JSON.stringify(routeConfig)}`);
+            const response = await this.kongAdminApi.createRoute({ serviceName, routeConfig: kongRouteConfig });
             route = ((response || {}).result || {});
         } else {
-            this.cli.log(`Updating route. Hosts: ${routeConfig.config.hosts}; Paths: ${routeConfig.config.paths}`);
-            await this.kongAdminApi.updateRoute({ routeId: route.id, routeConfig: routeConfig.config });
+            this.cli.log(`The Route "${JSON.stringify(routeConfig)}" is already exist in Kong`);
         }
 
         return route;
@@ -369,42 +419,38 @@ class ServerlessPlugin {
     }
 
     /**
-     * This function is register with the life cycle hook "kong:register-services:register-services"
-     * The input params can be passed from commandline (e.g. sls kong register-services -n example-service-1)
-     * Service name is an optional field for this function. You can pass it from command line using  --service or -n
-     * Read service configurations from serverless custom config section and create services, routes and plugins
+     * This function is register with the life cycle hook "kong:create-routes:create-routes"
+     * The input params can be passed from commandline (e.g. sls kong create-routes -n example-function-1)
+     * The input param function-name is an optional one. You can pass it from command line using  --function-name or -n
+     *
+     * Read route configurations from serverless config file and create routes
      * @returns {Promise<void>}
      */
-    async createServices() {
+    async createRoutes() {
         try {
-            const services = this.getConfigurations(this.options.service);
+            let routes = [];
+            const functionName = this.options['function-name'];
 
-            for (let serviceIndex = 0; serviceIndex < services.length; serviceIndex++) {
-                const serviceConfig = services[serviceIndex];
-                const servicePlugins = serviceConfig.plugins || [];
-                const routes = serviceConfig.routes || [];
+            if (functionName) {
+                const route = this.getConfigurationByFunctionName(functionName);
+                routes.push(route);
+            } else {
+                routes = this.getConfigurations();
+            }
 
-                const isServiceExist = await this.kongAdminApi.isServiceExist({ serviceName: serviceConfig.name });
+            for (let routeIndex = 0; routeIndex < routes.length; routeIndex++) {
+                const route = routes[routeIndex];
+
+                const isServiceExist = await this.kongAdminApi.isServiceExist({ serviceName: route.service });
 
                 if (!isServiceExist) {
-                    await this.createService({ serviceName: serviceConfig.name, upstreamUrl: serviceConfig.url });
-
-                    await this.createOrUpdateServicePlugins({ serviceName: serviceConfig.name, servicePlugins });
-
-                    for (let routeIndex = 0; routeIndex < routes.length; routeIndex++) {
-                        const routeConfig = routes[routeIndex];
-                        const routePlugins = routeConfig.plugins || [];
-
-                        const route = await this.createOrUpdateRoute({
-                            serviceName: serviceConfig.name,
-                            routeConfig
-                        }) || {};
-
-                        await this.createOrUpdateRoutePlugins({ routeId: route.id, routePlugins });
-                    }
-                } else {
-                    this.cli.log(`The service "${serviceConfig.name}" is already exist`);
+                    await this.createService({ serviceName: route.service, upstreamUrl: defaultUpstreamUrl });
                 }
+
+                await this.createRoute({
+                    serviceName: route.service,
+                    routeConfig: route
+                });
             }
         } catch (e) {
             this.cli.log(e);
@@ -412,67 +458,42 @@ class ServerlessPlugin {
     }
 
     /**
-     * This function is register with the life cycle hook "kong:update-service:update-service".
-     * The input params can be passed from commandline (e.g.  sls kong update-service -n example-service-1)
-     * Service name is required field for this function. You can pass it from command line using  --service or -n
-     * This function will read the service configuration from serverless custom config section
-     * by using the given service name and it updates the plugins and routes and then remove
-     * the plugins and routes which are removed from the configuration section.
+     * This function is register with the life cycle hook "kong:update-route:update-route".
+     * The input params can be passed from commandline (e.g.  sls kong update-route -n example-service-1)
+     * Function name is required field for this function. You can pass it from command line using  --function-name or -n
+     * This function will read the route configuration from serverless config
      * @returns {Promise<void>}
      */
-    async updateService() {
+    async updateRoute() {
         try {
-            const services = this.getConfigurations(this.options.service);
+            const functionName = this.options['function-name'];
+            const routeConfig = this.getConfigurationByFunctionName(functionName);
 
-            for (let serviceIndex = 0; serviceIndex < services.length; serviceIndex++) {
-                const serviceConfig = services[serviceIndex];
-                const servicePlugins = serviceConfig.plugins || [];
-                const routes = serviceConfig.routes || [];
+            if (!routeConfig) {
+                return;
+            }
 
-                const isServiceExist = await this.kongAdminApi.isServiceExist({ serviceName: serviceConfig.name });
+            // Construct route config object in the format the kong admin api expect.
+            const kongRouteConfig = buildRouteConfig(routeConfig);
 
-                if (!isServiceExist) {
-                    this.cli.log(`The service "${serviceConfig.name}" is not exist`);
-                    return;
-                }
+            const grResponse = await this.kongAdminApi.getRouteByConfig({
+                serviceName: routeConfig.service,
+                routeConfig: kongRouteConfig
+            });
 
-                const answer = await confirm(`Do you want to update the service "${serviceConfig.name}"? \nEnter "YES" to update: `);
+            const route = (grResponse && grResponse.result) || null;
+
+            if (route) {
+                const answer = await confirm(`Do you want to update the ${functionName}'s route ${JSON.stringify(routeConfig)}? \nEnter "YES" to update: `);
 
                 if (answer !== 'YES') {
                     return;
                 }
 
-                await this.createOrUpdateServicePlugins({ serviceName: serviceConfig.name, servicePlugins });
-
-                const servicePluginsRemovedFromConfig =
-                    await this.getServicePluginsRemovedFromConfig({ serviceName: serviceConfig.name, servicePlugins });
-
-                await this.removePlugins({ plugins: servicePluginsRemovedFromConfig });
-
-                for (let routeIndex = 0; routeIndex < routes.length; routeIndex++) {
-                    const routeConfig = routes[routeIndex];
-                    const routePlugins = routeConfig.plugins || [];
-
-                    const route = await this.createOrUpdateRoute({
-                        serviceName: serviceConfig.name,
-                        routeConfig
-                    }) || {};
-
-                    await this.createOrUpdateRoutePlugins({ routeId: route.id, routePlugins });
-
-                    const routePluginsRemovedFromConfig =
-                        await this.getRoutePluginsRemovedFromConfig({ routeId: route.id, routePlugins });
-
-                    await this.removePlugins({ plugins: routePluginsRemovedFromConfig });
-                }
-
-                const routesConfigs = routes.map(route => route.config);
-                const routesRemovedFromConfig =
-                    await this.getRoutesRemovedFromConfig({
-                        serviceName: serviceConfig.name, configuredRoutes: routesConfigs
-                    });
-
-                await this.removeRoutes({ routes: routesRemovedFromConfig });
+                this.cli.log(`Updating route. ${JSON.stringify(routeConfig)}`);
+                await this.kongAdminApi.updateRoute({ routeId: route.id, routeConfig: kongRouteConfig });
+            } else {
+                this.cli.log(`There is no route entry exist with this config "${JSON.stringify(routeConfig)}" in Kong`);
             }
         } catch (e) {
             this.cli.log(e);
@@ -480,43 +501,46 @@ class ServerlessPlugin {
     }
 
     /**
-     * This function is register with the life cycle hook "kong:remove-service:remove-service".
-     * The input params can be passed from commandline (e.g.  sls kong remove-service -n example-service-1)
-     * Service name is required field for this function. You can pass it from command line using  --service or -n
-     * This function will remove a service and associated plugins and routes from Kong.
+     * This function is register with the life cycle hook "kong:remove-route:remove-route".
+     * The input params can be passed from commandline (e.g.  sls kong remove-route -n example-function-1)
+     * Function name is required for this function. You can pass it from command line using  --function-name or -n
+     * This function will remove route from Kong.
      * @returns {Promise<void>}
      */
-    async deleteService() {
-        const serviceName = this.options.service;
+    async deleteRoute() {
+        try {
+            const functionName = this.options['function-name'];
+            const routeConfig = this.getConfigurationByFunctionName(functionName);
 
-        const response = await this.kongAdminApi.getService({ serviceName });
-        const service = (response || {}).result || null;
-
-        if (!service) {
-            this.cli.log(`This is no service register with this name "${serviceName}"`);
-            return;
-        }
-
-        const answer = await confirm(`Do you want to remove this service "${serviceName}"? THINK TWICE!\nEnter "YES" to remove: `);
-
-        if (answer !== 'YES') {
-            return;
-        }
-
-        const routesResponse = await this.kongAdminApi.getRoutes({ serviceName });
-        const routes = ((routesResponse || {}).result || {}).data || [];
-
-        if (routes.length) {
-            this.cli.log('Removing routes');
-            for (let index = 0; index < routes.length; index++) {
-                const routeId = routes[index].id;
-                this.cli.log(`Removing route ${index}: ${routeId}`);
-                await this.kongAdminApi.deleteRoute({ routeId });
+            if (!routeConfig) {
+                return;
             }
-        }
 
-        this.cli.log(`Removing service "${serviceName}"`);
-        await this.kongAdminApi.deleteService({ serviceName });
+            // Construct route config object in the format the kong admin api expect.
+            const kongRouteConfig = buildRouteConfig(routeConfig);
+
+            const grResponse = await this.kongAdminApi.getRouteByConfig({
+                serviceName: routeConfig.service,
+                routeConfig: kongRouteConfig
+            });
+
+            const route = (grResponse && grResponse.result) || null;
+
+            if (route) {
+                const answer = await confirm(`Do you want to remove the ${functionName}'s route ${JSON.stringify(routeConfig)}? \nEnter "YES" to remove: `);
+
+                if (answer !== 'YES') {
+                    return;
+                }
+
+                this.cli.log(`Removing route. ${JSON.stringify(routeConfig)}`);
+                await this.kongAdminApi.deleteRoute({ routeId: route.id });
+            } else {
+                this.cli.log(`There is no route entry exist with this config "${JSON.stringify(routeConfig)}" in Kong`);
+            }
+        } catch (e) {
+            this.cli.log(e);
+        }
     }
 }
 

@@ -15,7 +15,7 @@
     "serverless-plugin-kong"
   ],
   "author": "webteam@peerstream.com",
-  "license": "UNLICENSED",
+  "license": "ISC",
   "bugs": {
     "url": "https://github.com/peerstream/serverless-plugin-kong/issues"
   },

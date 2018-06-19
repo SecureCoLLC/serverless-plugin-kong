@@ -31,80 +31,42 @@ Add the config to your custom tag of serverless.yml,
 # serverless.yml
 
 custom:
-   kong: {
-            adminApiUrl: 'http://localhost:8001',
-            services: [
-                {
-                    name: `example-service-${stage}`,
-                    host: 'http://mockbin.org/',
-                    plugins: [
-                        {
-                            name: 'cors',
-                            config: {
-                                origins: '*',
-                                methods: 'GET, POST',
-                                headers: 'Accept, Authorization, Accept-Version, Content-Length, Content-Type, Date, X-Auth-Token',
-                                exposed_headers: 'X-Auth-Token',
-                                credentials: true,
-                                max_age: 3600
-                            }
-                        }
-                    ],
-                    routes: [
-                        {
-                            config: {
-                                preserve_host: true,
-                                hosts: [`${stage}.example.com`],
-                                paths: ['/users'],
-                                methods: ['GET']
-                            },
-                            plugins: [
-                                {
-                                    name: 'aws-lambda',
-                                    config: {
-                                        aws_region: 'us-east-1',
-                                        aws_key: 'AWS_ACCESS_KEY_ID',
-                                        aws_secret: 'AWS_SECRET_ACCESS_KEY',
-                                        function_name: `example-user-service-${stage}`
-                                    }
-                                }
-                            ]
-                        },
-                        {
-                            config: {
-                                preserve_host: true,
-                                hosts: [`${stage}.example.com`],
-                                paths: ['/products']
-                            },
-                            plugins: [
-                                {
-                                    name: 'aws-lambda',
-                                    config: {
-                                        aws_region: 'us-east-1',
-                                        aws_key: 'AWS_ACCESS_KEY_ID',
-                                        aws_secret: 'AWS_SECRET_ACCESS_KEY',
-                                        function_name: `example-product-service-${stage}`
-                                    }
-                                }
-                            ]
-                        }
-                    ]
-                }
-            ]
+    kong: {
+           adminApiCredentials: {
+               url: 'http://localhost:8001',
+               headers: {}
+           }
+       }
+custom: {
+ kong: {
+    adminApiCredentials: {
+       url: 'http://localhost:8001',
+       headers: {}
+    }
+ }
+},
+"functions": {
+    "example-function-1": {
+      "handler": "functions/example/function1.entry",
+      "events": [
+        {
+          "kong": {
+            "service": "test-service",
+            "path": "/news",
+            "method": "get"
+          }
         }
+      ],
+    
 ```
 
 Command to register lambda functions
 
-sls kong create-services -s prod
+sls kong create-routes --function-name example-function-1
 
-sls kong create-services -s dev
+sls kong update-route --function-name example-function-1
 
- sls kong create-services -n example-service
-
-sls kong update-service -s prod -n example-service
-
-sls kong delete-service -s prod -n example-service
+sls kong delete-route -s prod --function-name example-function-1
 
 ## Contributing
 

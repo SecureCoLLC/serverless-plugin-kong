@@ -17,10 +17,14 @@ const STATUS_CODES = {
  */
 class KongAdminApi {
     constructor(config) {
-        if (!config || !config.adminUrl) {
-            throw new Error('adminUrl is mandatory');
+        if (!config || !config.adminApiUrl) {
+            throw new Error('adminApiUrl is mandatory');
         }
 
+        this.requestHandler = httpHelper.create({
+            url: config.adminApiUrl,
+            headers: config.headers
+        });
         this.config = config;
     }
 
@@ -35,7 +39,11 @@ class KongAdminApi {
                 throw new Error('Missing required "serviceName" parameter.');
             }
 
-            const response = await httpHelper.request({ url: `${this.config.adminUrl}/services/${serviceName}`, method: 'GET' });
+            const response = await this.requestHandler({
+                path: `/services/${serviceName}`,
+                method: 'GET'
+            });
+
             return response;
         } catch (e) {
             throw e;
@@ -60,14 +68,14 @@ class KongAdminApi {
                 throw new Error('Missing required "upstreamUrl" parameter.');
             }
 
-            const service = await httpHelper.request({ url: `${this.config.adminUrl}/services/${serviceName}`, method: 'GET' });
+            const service = await this.requestHandler({ path: `/services/${serviceName}`, method: 'GET' });
 
             if (service.statusCode === STATUS_CODES.OK) {
                 throw new Error(`Service "${serviceName}" is already exist`);
             }
 
-            response = await httpHelper.request({
-                url: `${this.config.adminUrl}/services/`,
+            response = await this.requestHandler({
+                path: '/services',
                 method: 'POST',
                 data: {
                     name: serviceName,
@@ -93,8 +101,8 @@ class KongAdminApi {
                 throw new Error('Missing required "serviceName" parameter.');
             }
 
-            response = await httpHelper.request({
-                url: `${this.config.adminUrl}/services/${serviceName}`,
+            response = await this.requestHandler({
+                path: `/services/${serviceName}`,
                 method: 'DELETE'
             });
         } catch (e) {
@@ -129,7 +137,7 @@ class KongAdminApi {
             }
 
 
-            const service = await httpHelper.request({ url: `${this.config.adminUrl}/services/${serviceName}`, method: 'GET' });
+            const service = await this.requestHandler({ path: `/services/${serviceName}`, method: 'GET' });
 
             if (service.statusCode === STATUS_CODES.NOT_FOUND) {
                 throw new Error(`Service "${serviceName}" is not exist`);
@@ -137,8 +145,8 @@ class KongAdminApi {
 
             const route = Object.assign({ service: { id: service.result.id } }, routeConfig);
 
-            response = await httpHelper.request({
-                url: `${this.config.adminUrl}/routes`,
+            response = await this.requestHandler({
+                path: '/routes',
                 method: 'POST',
                 data: route
             });
@@ -172,8 +180,8 @@ class KongAdminApi {
                     '\'routeConfig.methods\', \'routeConfig.hosts\', \'routeConfig.paths\'');
             }
 
-            response = await httpHelper.request({
-                url: `${this.config.adminUrl}/routes/${routeId}`,
+            response = await this.requestHandler({
+                path: `/routes/${routeId}`,
                 method: 'PATCH',
                 data: routeConfig
             });
@@ -196,8 +204,8 @@ class KongAdminApi {
                 throw new Error('Missing required "routeId" parameter.');
             }
 
-            response = await httpHelper.request({
-                url: `${this.config.adminUrl}/routes/${routeId}`,
+            response = await this.requestHandler({
+                path: `/routes/${routeId}`,
                 method: 'DELETE'
             });
         } catch (e) {
@@ -254,7 +262,7 @@ class KongAdminApi {
                 throw new Error('Missing required "routeId" parameter.');
             }
 
-            response = await httpHelper.request({ url: `${this.config.adminUrl}/routes/${routeId}`, method: 'GET' });
+            response = await this.requestHandler({ path: `/routes/${routeId}`, method: 'GET' });
         } catch (e) {
             throw e;
         }
@@ -285,7 +293,7 @@ class KongAdminApi {
             }
 
 
-            const res = await httpHelper.request({ url: `${this.config.adminUrl}/services/${serviceName}/routes`, method: 'GET' });
+            const res = await this.requestHandler({ path: `/services/${serviceName}/routes`, method: 'GET' });
             const routes = ((res.result || {}).data || []).filter(route => {
                 const routeKey = this.generateUniqueKeyForRoute({ routeConfig: route });
                 return requestedRouteKey === routeKey;
@@ -314,7 +322,7 @@ class KongAdminApi {
                 throw new Error('Missing required "serviceName" parameter.');
             }
 
-            response = await httpHelper.request({ url: `${this.config.adminUrl}/services/${serviceName}/routes`, method: 'GET' });
+            response = await this.requestHandler({ path: `/services/${serviceName}/routes`, method: 'GET' });
         } catch (e) {
             throw e;
         }
@@ -343,14 +351,14 @@ class KongAdminApi {
                 throw new Error('Missing required field "name" in "pluginConfig" parameter');
             }
 
-            const res = await httpHelper.request({ url: `${this.config.adminUrl}/services/${serviceName}`, method: 'GET' });
+            const res = await this.requestHandler({ path: `/services/${serviceName}`, method: 'GET' });
 
             if (res.statusCode === STATUS_CODES.NOT_FOUND) {
                 throw new Error(`Service "${serviceName}" is not exist`);
             }
 
-            response = await httpHelper.request({
-                url: `${this.config.adminUrl}/services/${serviceName}/plugins`,
+            response = await this.requestHandler({
+                path: `/services/${serviceName}/plugins`,
                 method: 'POST',
                 data: pluginConfig
             });
@@ -382,14 +390,14 @@ class KongAdminApi {
                 throw new Error('Missing required field "name" in "pluginConfig" parameter');
             }
 
-            const route = await httpHelper.request({ url: `${this.config.adminUrl}/routes/${routeId}`, method: 'GET' });
+            const route = await this.requestHandler({ path: `/routes/${routeId}`, method: 'GET' });
 
             if (route.statusCode === STATUS_CODES.NOT_FOUND) {
                 throw new Error(`There is no route exist with this ID "${routeId}".`);
             }
 
-            response = await httpHelper.request({
-                url: `${this.config.adminUrl}/routes/${routeId}/plugins`,
+            response = await this.requestHandler({
+                path: `/routes/${routeId}/plugins`,
                 method: 'POST',
                 data: pluginConfig
             });
@@ -420,8 +428,8 @@ class KongAdminApi {
                 throw new Error('Missing required field "name" in "pluginConfig" parameter');
             }
 
-            response = await httpHelper.request({
-                url: `${this.config.adminUrl}/plugins/${pluginId}`,
+            response = await this.requestHandler({
+                path: `/plugins/${pluginId}`,
                 method: 'PATCH',
                 data: pluginConfig
             });
@@ -444,8 +452,8 @@ class KongAdminApi {
                 throw new Error('Missing required "pluginId" parameter.');
             }
 
-            response = await httpHelper.request({
-                url: `${this.config.adminUrl}/plugins/${pluginId}`,
+            response = await this.requestHandler({
+                path: `/plugins/${pluginId}`,
                 method: 'DELETE'
             });
         } catch (e) {
@@ -467,7 +475,7 @@ class KongAdminApi {
                 throw new Error('Missing required "pluginId" parameter.');
             }
 
-            response = await httpHelper.request({ url: `${this.config.adminUrl}/plugins/${pluginId}`, method: 'GET' });
+            response = await this.requestHandler({ path: `/plugins/${pluginId}`, method: 'GET' });
         } catch (e) {
             throw e;
         }
@@ -486,7 +494,7 @@ class KongAdminApi {
                 throw new Error('Missing required "serviceName" parameter.');
             }
 
-            response = await httpHelper.request({ url: `${this.config.adminUrl}/services/${serviceName}/plugins`, method: 'GET' });
+            response = await this.requestHandler({ path: `/services/${serviceName}/plugins`, method: 'GET' });
         } catch (e) {
             throw e;
         }
@@ -505,7 +513,7 @@ class KongAdminApi {
             if (!routeId) {
                 throw new Error('Missing required "routeId" parameter.');
             }
-            response = await httpHelper.request({ url: `${this.config.adminUrl}/routes/${routeId}/plugins`, method: 'GET' });
+            response = await this.requestHandler({ path: `/routes/${routeId}/plugins`, method: 'GET' });
         } catch (e) {
             throw e;
         }
@@ -531,7 +539,7 @@ class KongAdminApi {
                 throw new Error('Missing required "pluginName" parameter.');
             }
 
-            const res = await httpHelper.request({ url: `${this.config.adminUrl}/services/${serviceName}/plugins`, method: 'GET' });
+            const res = await this.requestHandler({ path: `/services/${serviceName}/plugins`, method: 'GET' });
             const filteredPlugin = ((res.result || {}).data || []).filter(plugin => plugin.name === pluginName);
 
             const plugin = filteredPlugin[0] || null;
@@ -563,7 +571,7 @@ class KongAdminApi {
                 throw new Error('Missing required "pluginName" parameter.');
             }
 
-            const plugins = await httpHelper.request({ url: `${this.config.adminUrl}/routes/${routeId}/plugins`, method: 'GET' });
+            const plugins = await this.requestHandler({ path: `/routes/${routeId}/plugins`, method: 'GET' });
 
             const filteredPlugin = ((plugins.result || {}).data || []).filter(plugin => plugin.name === pluginName);
 
@@ -590,7 +598,7 @@ class KongAdminApi {
                 throw new Error('Missing required "serviceName" parameter.');
             }
 
-            const response = await httpHelper.request({ url: `${this.config.adminUrl}/services/${serviceName}`, method: 'GET' });
+            const response = await this.requestHandler({ path: `/services/${serviceName}`, method: 'GET' });
             if (response.statusCode === STATUS_CODES.OK && response.result) {
                 isExist = true;
             }
@@ -618,7 +626,7 @@ class KongAdminApi {
                 throw new Error('Missing required "pluginName" parameter.');
             }
 
-            const plugins = await httpHelper.request({ url: `${this.config.adminUrl}/services/${serviceName}/plugins`, method: 'GET' });
+            const plugins = await this.requestHandler({ path: `/services/${serviceName}/plugins`, method: 'GET' });
             const filteredPlugin = ((plugins.result || {}).data || []).filter(plugin => plugin.name === pluginName);
 
             const plugin = filteredPlugin[0] || null;
