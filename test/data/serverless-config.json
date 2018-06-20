@@ -1,0 +1,47 @@
+{
+  "service": "test-service",
+  "package": {
+    "individually": false
+  },
+  "custom": {
+    "kong": {
+      "adminApiCredentials": {
+        "url": "http://localhost:8001",
+        "headers": {}
+      }
+    }
+  },
+  "plugins": [
+    "serverless-plugin-kong"
+  ],
+  "functions": {
+    "test-user": {
+      "handler": "functions/test/user.entry",
+      "events": [
+        {
+          "kong": {
+            "service": "test-service",
+            "path": "/users",
+            "method": "get"
+          }
+        }
+      ],
+      "timeout": 3,
+      "warmup": true
+    },
+    "test-product": {
+      "handler": "functions/test/product.entry",
+      "events": [
+        {
+          "kong": {
+            "service": "test-service",
+            "path": "/products",
+            "method": "get"
+          }
+        }
+      ],
+      "timeout": 3,
+      "warmup": true
+    }
+  }
+}
