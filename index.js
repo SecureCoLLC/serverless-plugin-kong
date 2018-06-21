@@ -29,20 +29,31 @@ const buildRouteConfig = config => {
     }
 
     // Construct route config object in the format the kong admin api expect.
-    const kongRouteConfig = {};
+    const route = {};
+    route.config = Object.assign({}, config);
+
+    if (config.service) {
+        route.service = config.service;
+        delete route.config.service;
+    }
+
+
     if (config.path) {
-        kongRouteConfig.paths = [config.path];
+        route.config.paths = [config.path];
+        delete route.config.path;
     }
 
     if (config.method) {
-        kongRouteConfig.methods = [config.method.toUpperCase()];
+        route.config.methods = [config.method.toUpperCase()];
+        delete route.config.method;
     }
 
     if (config.host) {
-        kongRouteConfig.hosts = [config.host];
+        route.config.hosts = [config.host];
+        delete route.config.host;
     }
 
-    return kongRouteConfig;
+    return route;
 };
 
 // Serverless plugin custom commands and lifecycle events
@@ -74,6 +85,10 @@ const commands = {
                         shortcut: 'n',
                         required: true
                     },
+                    'non-interactive-mode': {
+                        usage: '(e.g. "--non-interactive-mode true")',
+                        required: false
+                    }
                 }
             },
             'update-route': {
@@ -87,6 +102,10 @@ const commands = {
                         shortcut: 'n',
                         required: true
                     },
+                    'non-interactive-mode': {
+                        usage: '(e.g. "--non-interactive-mode true")',
+                        required: false
+                    }
                 }
             }
         }
@@ -205,19 +224,18 @@ class ServerlessPlugin {
             throw new Error('At least one of these fields must be non-empty: \'method\', \'host\', \'path\'');
         }
 
-        // Construct route config object in the format the kong admin api expect.
         const kongRouteConfig = buildRouteConfig(routeConfig);
 
         const grResponse = await this.kongAdminApi.getRouteByConfig({
             serviceName,
-            routeConfig: kongRouteConfig
+            routeConfig: kongRouteConfig.config
         });
 
         let route = (grResponse && grResponse.result) || null;
 
         if (!route) {
             this.cli.log(`Creating a route. ${JSON.stringify(routeConfig)}`);
-            const response = await this.kongAdminApi.createRoute({ serviceName, routeConfig: kongRouteConfig });
+            const response = await this.kongAdminApi.createRoute({ serviceName, routeConfig: kongRouteConfig.config });
             route = ((response || {}).result || {});
         } else {
             this.cli.log(`The Route "${JSON.stringify(routeConfig)}" is already exist in Kong`);
@@ -232,9 +250,11 @@ class ServerlessPlugin {
      * The input param function-name is an optional one. You can pass it from command line using  --function-name or -n
      *
      * Read route configurations from serverless config file and create routes
-     * @returns {Promise<void>}
+     * @returns {Promise<Array[]>}
      */
     async createRoutes() {
+        const createdRoutes = [];
+
         try {
             let routes = [];
             const functionName = this.options['function-name'];
@@ -255,14 +275,18 @@ class ServerlessPlugin {
                     await this.createService({ serviceName: route.service, upstreamUrl: defaultUpstreamUrl });
                 }
 
-                await this.createRoute({
+                const res = await this.createRoute({
                     serviceName: route.service,
                     routeConfig: route
                 });
+
+                createdRoutes.push(res);
             }
         } catch (e) {
             this.cli.log(e);
         }
+
+        return createdRoutes;
     }
 
     /**
@@ -276,8 +300,8 @@ class ServerlessPlugin {
         let response = null;
         try {
             const functionName = this.options['function-name'];
+            const nonInteractiveMode = this.options['non-interactive-mode'];
             const routeConfig = this.getConfigurationByFunctionName(functionName);
-
             if (!routeConfig) {
                 throw new Error(`There is function with this name "${functionName}"`);
             }
@@ -287,20 +311,24 @@ class ServerlessPlugin {
 
             const grResponse = await this.kongAdminApi.getRouteByConfig({
                 serviceName: routeConfig.service,
-                routeConfig: kongRouteConfig
+                routeConfig: kongRouteConfig.config
             });
 
             const route = (grResponse && grResponse.result) || null;
-
             if (route) {
-                const answer = await confirm(`Do you want to update the ${functionName}'s route ${JSON.stringify(routeConfig)}? \nEnter "YES" to update: `);
+                if (!nonInteractiveMode) {
+                    const answer = await confirm(`Do you want to update the ${functionName}'s route ${JSON.stringify(routeConfig)}? \nEnter "YES" to update: `);
 
-                if (answer !== 'YES') {
-                    return response;
+                    if (answer !== 'YES') {
+                        return response;
+                    }
                 }
 
+
                 this.cli.log(`Updating route. ${JSON.stringify(routeConfig)}`);
-                response = await this.kongAdminApi.updateRoute({ routeId: route.id, routeConfig: kongRouteConfig });
+                response = await this.kongAdminApi.updateRoute({
+                    routeId: route.id, routeConfig: kongRouteConfig.config
+                });
             } else {
                 this.cli.log(`There is no route entry exist with this config "${JSON.stringify(routeConfig)}" in Kong`);
             }
@@ -316,42 +344,48 @@ class ServerlessPlugin {
      * The input params can be passed from commandline (e.g.  sls kong remove-route -n example-function-1)
      * Function name is required for this function. You can pass it from command line using  --function-name or -n
      * This function will remove route from Kong.
-     * @returns {Promise<void>}
+     * @returns {Promise<object|null>}
      */
     async deleteRoute() {
+        let response = null;
         try {
             const functionName = this.options['function-name'];
+            const nonInteractiveMode = this.options['non-interactive-mode'];
             const routeConfig = this.getConfigurationByFunctionName(functionName);
 
             if (!routeConfig) {
-                return;
+                return response;
             }
+
 
             // Construct route config object in the format the kong admin api expect.
             const kongRouteConfig = buildRouteConfig(routeConfig);
 
             const grResponse = await this.kongAdminApi.getRouteByConfig({
                 serviceName: routeConfig.service,
-                routeConfig: kongRouteConfig
+                routeConfig: kongRouteConfig.config
             });
 
             const route = (grResponse && grResponse.result) || null;
 
             if (route) {
-                const answer = await confirm(`Do you want to remove the ${functionName}'s route ${JSON.stringify(routeConfig)}? \nEnter "YES" to remove: `);
+                if (!nonInteractiveMode) {
+                    const answer = await confirm(`Do you want to remove the ${functionName}'s route ${JSON.stringify(routeConfig)}? \nEnter "YES" to remove: `);
 
-                if (answer !== 'YES') {
-                    return;
+                    if (answer !== 'YES') {
+                        return response;
+                    }
                 }
 
                 this.cli.log(`Removing route. ${JSON.stringify(routeConfig)}`);
-                await this.kongAdminApi.deleteRoute({ routeId: route.id });
+                response = await this.kongAdminApi.deleteRoute({ routeId: route.id });
             } else {
                 this.cli.log(`There is no route entry exist with this config "${JSON.stringify(routeConfig)}" in Kong`);
             }
         } catch (e) {
             this.cli.log(e);
         }
+        return response;
     }
 }
 
