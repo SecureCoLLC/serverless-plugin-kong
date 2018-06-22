@@ -2,59 +2,9 @@
 
 // NOTE: We use await inside for loop. If we use Promise.all, we get 500 error from kong.
 // @see https://github.com/Kong/kong/issues/3440
-
 const KongAdminApi = require('./kong-admin-api');
-
-const readline = require('readline');
-
-// Here upstream service is our lambda function, that's we just set the dummy upstream url 'http://127.0.0.1:80/'
-const defaultUpstreamUrl = 'http://127.0.0.1:80/';
-
-// Helper function to get an approval before do an action
-const confirm = message => new Promise(resolve => {
-    const rl = readline.createInterface({
-        input: process.stdin,
-        output: process.stdout
-    });
-
-    rl.question(message, answer => {
-        resolve(answer);
-        rl.close();
-    });
-});
-
-const buildRouteConfig = config => {
-    if (!config) {
-        return config;
-    }
-
-    // Construct route config object in the format the kong admin api expect.
-    const route = {};
-    route.config = Object.assign({}, config);
-
-    if (config.service) {
-        route.service = config.service;
-        delete route.config.service;
-    }
-
-
-    if (config.path) {
-        route.config.paths = [config.path];
-        delete route.config.path;
-    }
-
-    if (config.method) {
-        route.config.methods = [config.method.toUpperCase()];
-        delete route.config.method;
-    }
-
-    if (config.host) {
-        route.config.hosts = [config.host];
-        delete route.config.host;
-    }
-
-    return route;
-};
+const utils = require('./utils');
+const defaults = require('./defaults');
 
 // Serverless plugin custom commands and lifecycle events
 const commands = {
@@ -114,23 +64,68 @@ const commands = {
 
 class ServerlessPlugin {
     constructor(serverless, options) {
-        const kongAdminApiCredentials = (serverless.service.custom.kong || {}).adminApiCredentials || {};
+        const kong = serverless.service.custom.kong || {};
 
         this.serverless = serverless;
         this.cli = serverless.cli;
         this.options = options;
 
-        this.kongAdminApi = new KongAdminApi({
-            adminApiUrl: kongAdminApiCredentials.url, adminApiHeaders: kongAdminApiCredentials.headers
-        });
+        this.defaultKongAdminApiCredentialsProfile = 'default';
 
         this.commands = commands;
 
         this.hooks = {
+            'kong:create-service:create-service': this.createService.bind(this),
             'kong:create-routes:create-routes': this.createRoutes.bind(this),
             'kong:update-route:update-route': this.updateRoute.bind(this),
             'kong:delete-route:delete-route': this.deleteRoute.bind(this),
         };
+
+
+        this.kongAdminApiCredentialConfig = {
+            path: kong.admin_credentials_file,
+            profile: kong.admin_credentials_profile || this.defaultKongAdminApiCredentialsProfile
+        };
+
+        const kongAdminApiCredentials = this.getKongAdminApiCredentials();
+
+        this.kongAdminApi = new KongAdminApi({
+            adminApiUrl: kongAdminApiCredentials.url, adminApiHeaders: kongAdminApiCredentials.headers
+        });
+    }
+
+    getKongAdminApiCredentials() {
+        let kongAdminApiCredential = null;
+        let kongAdminApiCredentialsFilePath;
+
+        try {
+            if (utils.isFileExist(this.kongAdminApiCredentialConfig.path)) {
+                kongAdminApiCredentialsFilePath = utils.resolvePath(this.kongAdminApiCredentialConfig.path);
+            }
+
+            if (!this.kongAdminApiCredentialConfig.path) {
+                kongAdminApiCredentialsFilePath = utils.findFile(
+                    defaults.kongAdminApiCredentials.defaultPaths,
+                    defaults.kongAdminApiCredentials.fileName
+                );
+            }
+
+            console.log();
+
+            // eslint-disable-next-line
+            const kongAdminApiCredentials = utils.readJsonFile(kongAdminApiCredentialsFilePath);
+
+            if (!kongAdminApiCredentials) {
+                throw new Error(`Missing kong admin configuration ${kongAdminApiCredentialsFilePath}`);
+            }
+
+            kongAdminApiCredential = kongAdminApiCredentials
+                && kongAdminApiCredentials[this.kongAdminApiCredentialConfig.profile];
+        } catch (e) {
+            throw e;
+        }
+
+        return kongAdminApiCredential;
     }
 
     /**
@@ -183,23 +178,28 @@ class ServerlessPlugin {
      * @param upstreamUrl -  The url of the upstream server
      * @returns {Promise<void>}
      */
-    async createService({ serviceName, upstreamUrl }) {
+    async createService() {
         let result;
-        if (!serviceName) {
-            throw new Error('Missing required "serviceName" parameter.');
+
+        const { service } = ((this.serverless.service.custom || {}).kong || {});
+
+        if (!service) {
+            throw new Error('Service configuration is missing in kong settings. Configure it in serverless custom kong section');
         }
 
-        if (!upstreamUrl) {
-            throw new Error('Missing required "upstreamUrl" parameter.');
+        if (!service.name) {
+            throw new Error('Missing required "name" field in kong service configuration.');
         }
 
-        const isServiceExist = await this.kongAdminApi.isServiceExist({ serviceName });
+        const isServiceExist = await this.kongAdminApi.isServiceExist({ serviceName: service.name });
 
         if (!isServiceExist) {
-            this.cli.log(`Creating a service ${serviceName}`);
-            result = await this.kongAdminApi.createService({ serviceName, upstreamUrl });
+            this.cli.log(`Creating a service ${service.name}`);
+            result = await this.kongAdminApi.createService({
+                serviceName: service.name, upstreamUrl: defaults.upstreamUrl
+            });
         } else {
-            this.cli.log(`The service "${serviceName}" is already exist`);
+            this.cli.log(`The service "${service.name}" is already exist`);
         }
 
         return result;
@@ -224,7 +224,7 @@ class ServerlessPlugin {
             throw new Error('At least one of these fields must be non-empty: \'method\', \'host\', \'path\'');
         }
 
-        const kongRouteConfig = buildRouteConfig(routeConfig);
+        const kongRouteConfig = utils.buildRouteConfig(routeConfig);
 
         const grResponse = await this.kongAdminApi.getRouteByConfig({
             serviceName,
@@ -272,7 +272,7 @@ class ServerlessPlugin {
                 const isServiceExist = await this.kongAdminApi.isServiceExist({ serviceName: route.service });
 
                 if (!isServiceExist) {
-                    await this.createService({ serviceName: route.service, upstreamUrl: defaultUpstreamUrl });
+                    throw new Error(`There is no service exist with this name ${route.service}`);
                 }
 
                 const res = await this.createRoute({
@@ -307,7 +307,7 @@ class ServerlessPlugin {
             }
 
             // Construct route config object in the format the kong admin api expect.
-            const kongRouteConfig = buildRouteConfig(routeConfig);
+            const kongRouteConfig = utils.buildRouteConfig(routeConfig);
 
             const grResponse = await this.kongAdminApi.getRouteByConfig({
                 serviceName: routeConfig.service,
@@ -317,7 +317,7 @@ class ServerlessPlugin {
             const route = (grResponse && grResponse.result) || null;
             if (route) {
                 if (!nonInteractiveMode) {
-                    const answer = await confirm(`Do you want to update the ${functionName}'s route ${JSON.stringify(routeConfig)}? \nEnter "YES" to update: `);
+                    const answer = await utils.confirm(`Do you want to update the ${functionName}'s route ${JSON.stringify(routeConfig)}? \nEnter "YES" to update: `);
 
                     if (answer !== 'YES') {
                         return response;
@@ -359,7 +359,7 @@ class ServerlessPlugin {
 
 
             // Construct route config object in the format the kong admin api expect.
-            const kongRouteConfig = buildRouteConfig(routeConfig);
+            const kongRouteConfig = utils.buildRouteConfig(routeConfig);
 
             const grResponse = await this.kongAdminApi.getRouteByConfig({
                 serviceName: routeConfig.service,
@@ -370,7 +370,7 @@ class ServerlessPlugin {
 
             if (route) {
                 if (!nonInteractiveMode) {
-                    const answer = await confirm(`Do you want to remove the ${functionName}'s route ${JSON.stringify(routeConfig)}? \nEnter "YES" to remove: `);
+                    const answer = await utils.confirm(`Do you want to remove the ${functionName}'s route ${JSON.stringify(routeConfig)}? \nEnter "YES" to remove: `);
 
                     if (answer !== 'YES') {
                         return response;

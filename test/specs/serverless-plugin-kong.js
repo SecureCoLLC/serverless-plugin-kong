@@ -4,8 +4,8 @@ const dirtyChai = require('dirty-chai');
 chai.use(dirtyChai);
 const { expect } = chai;
 
-// const serverless = { cli: { log: () => {} } };
-const serverless = { cli: console };
+const serverless = { cli: { log: () => {} } };
+// const serverless = { cli: console };
 
 serverless.service = require('../data/serverless-config');
 
@@ -17,6 +17,8 @@ const serverlessPluginKong = new ServerlessPluginKong(serverless, {});
 describe('Serverless Plugin Kong', () => {
     const testServiceName = `${Date.now()}`;
     const testRouteConfig = { host: 'example.com', path: '/users', method: 'GET' };
+
+    serverlessPluginKong.serverless.service.custom.kong.service.name = testServiceName;
 
     it('should fetch configuration by function name', () => {
         const config = serverlessPluginKong.getConfigurationByFunctionName('test-user');
@@ -30,7 +32,7 @@ describe('Serverless Plugin Kong', () => {
         expect(config.length).above(0);
     });
 
-    it('should create a service', () => serverlessPluginKong.createService({ serviceName: testServiceName, upstreamUrl: 'http://127.0.0.1' }).then(result => {
+    it('should create a service', () => serverlessPluginKong.createService().then(result => {
         expect(result.statusCode).to.equal(201);
         expect(result.result.id).exist();
     }));

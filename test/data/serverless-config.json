@@ -4,12 +4,26 @@
     "individually": false
   },
   "custom": {
-    "kong": {
-      "adminApiCredentials": {
-        "url": "http://localhost:8001",
-        "headers": {}
+      "kong": {
+          "admin_credentials_file": "~/.kong/credentials.json",
+          "admin_credentials_profile": "qa",
+          "service": {
+              "name": "example-service",
+              "plugins": [
+                  {
+                      "name": "cors",
+                      "config": {
+                          "origins": "*",
+                          "methods": "GET, POST",
+                          "headers": "Accept, Authorization, Accept-Version, Content-Length, Content-Type, Date, X-Auth-Token",
+                          "exposed_headers": "X-Auth-Token",
+                          "credentials": true,
+                          "max_age": 3600
+                      }
+                  }
+              ]
+          }
       }
-    }
   },
   "plugins": [
     "serverless-plugin-kong"
