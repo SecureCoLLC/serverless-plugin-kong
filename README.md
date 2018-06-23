@@ -30,21 +30,29 @@ Add the config to your custom tag of serverless.yml,
 ```yaml
 # serverless.yml
 
-custom:
-    kong: {
-           adminApiCredentials: {
-               url: 'http://localhost:8001',
-               headers: {}
-           }
-       }
-custom: {
- kong: {
-    adminApiCredentials: {
-       url: 'http://localhost:8001',
-       headers: {}
-    }
- }
-},
+"custom":
+    "kong": {
+          "admin_credentials": {
+            "file": "~/.kong/credentials.json",
+            "profile": "qa"
+          },
+          "service": {
+              "name": "example-service",
+              "plugins": [
+                  {
+                      "name": "cors",
+                      "config": {
+                          "origins": "*",
+                          "methods": "GET, POST",
+                          "headers": "Accept, Authorization, Accept-Version, Content-Length, Content-Type, Date, X-Auth-Token",
+                          "exposed_headers": "X-Auth-Token",
+                          "credentials": true,
+                          "max_age": 3600
+                      }
+                  }
+              ]
+          }
+      }
 "functions": {
     "example-function-1": {
       "handler": "functions/example/function1.entry",
@@ -59,6 +67,19 @@ custom: {
       ],
     
 ```
+
+~/.kong/credentials.json
+
+{
+  "default": { 
+    "url": "http://localhost:8001",
+    "headers": {}
+  },
+  "qa": {
+   "url": "http://localhost:8001"
+  }
+}
+
 
 Command to register lambda functions
 
