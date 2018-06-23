@@ -5,8 +5,10 @@
   },
   "custom": {
       "kong": {
-          "admin_credentials_file": "~/.kong/credentials.json",
-          "admin_credentials_profile": "qa",
+          "admin_credentials": {
+            "file": "~/.kong/credentials.json.old",
+            "profile": "qa"
+          },
           "service": {
               "name": "example-service",
               "plugins": [

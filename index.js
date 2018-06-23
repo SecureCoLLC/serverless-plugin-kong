@@ -9,8 +9,20 @@ const defaults = require('./defaults');
 // Serverless plugin custom commands and lifecycle events
 const commands = {
     kong: {
-        usage: 'Helps you create/update/delete services and routes registered with kong. e.g. sls kong create-services',
+        usage: 'Helps you create/update/delete service and it\'s routes registered with kong. e.g. sls kong create-service',
         commands: {
+            'create-service': {
+                usage: 'Helps you create service in kong',
+                lifecycleEvents: [
+                    'create-service'
+                ]
+            },
+            'update-service': {
+                usage: 'Helps you create service in kong',
+                lifecycleEvents: [
+                    'update-service'
+                ]
+            },
             'create-routes': {
                 usage: 'Helps you create routes in kong',
                 lifecycleEvents: [
@@ -18,8 +30,8 @@ const commands = {
                 ],
                 options: {
                     'function-name': {
-                        usage: 'Specify the name of the function for which you want to create route entry in Kong (e.g. "--function-name example1" "-n example1")',
-                        shortcut: 'n',
+                        usage: 'Specify the name of the function for which you want to create route entry in Kong (e.g. "--function-name example1" "-f example1")',
+                        shortcut: 'f',
                         required: false
                     },
                 }
@@ -31,8 +43,8 @@ const commands = {
                 ],
                 options: {
                     'function-name': {
-                        usage: 'Specify the name of the function for which you want to delete route entry from Kong (e.g. "--function-name example1" "-n example1")',
-                        shortcut: 'n',
+                        usage: 'Specify the name of the function for which you want to delete route entry from Kong (e.g. "--function-name example1" "-f example1")',
+                        shortcut: 'f',
                         required: true
                     },
                     'non-interactive-mode': {
@@ -48,8 +60,8 @@ const commands = {
                 ],
                 options: {
                     'function-name': {
-                        usage: 'Specify the name of the function for which you want to update the route config in kong (e.g. "--function-name example1" "-n example1")',
-                        shortcut: 'n',
+                        usage: 'Specify the name of the function for which you want to update the route config in kong (e.g. "--function-name example1" "-f example1")',
+                        shortcut: 'f',
                         required: true
                     },
                     'non-interactive-mode': {
@@ -64,18 +76,21 @@ const commands = {
 
 class ServerlessPlugin {
     constructor(serverless, options) {
-        const kong = serverless.service.custom.kong || {};
+        const adminCredentials = ((serverless.service.custom || {}).kong || {}).admin_credentials || {};
+
 
         this.serverless = serverless;
         this.cli = serverless.cli;
         this.options = options;
 
+        this.defaults = defaults;
         this.defaultKongAdminApiCredentialsProfile = 'default';
 
         this.commands = commands;
 
         this.hooks = {
             'kong:create-service:create-service': this.createService.bind(this),
+            'kong:update-service:update-service': this.updateService.bind(this),
             'kong:create-routes:create-routes': this.createRoutes.bind(this),
             'kong:update-route:update-route': this.updateRoute.bind(this),
             'kong:delete-route:delete-route': this.deleteRoute.bind(this),
@@ -83,8 +98,8 @@ class ServerlessPlugin {
 
 
         this.kongAdminApiCredentialConfig = {
-            path: kong.admin_credentials_file,
-            profile: kong.admin_credentials_profile || this.defaultKongAdminApiCredentialsProfile
+            path: adminCredentials.file,
+            profile: adminCredentials.profile || this.defaultKongAdminApiCredentialsProfile
         };
 
         const kongAdminApiCredentials = this.getKongAdminApiCredentials();
@@ -105,12 +120,18 @@ class ServerlessPlugin {
 
             if (!this.kongAdminApiCredentialConfig.path) {
                 kongAdminApiCredentialsFilePath = utils.findFile(
-                    defaults.kongAdminApiCredentials.defaultPaths,
-                    defaults.kongAdminApiCredentials.fileName
+                    this.defaults.kongAdminApiCredentials.defaultPaths,
+                    this.defaults.kongAdminApiCredentials.fileName
                 );
             }
 
-            console.log();
+            if (!kongAdminApiCredentialsFilePath) {
+                throw new Error('Kong admin credentials path is not configured. ' +
+                    'You can configured it in serverless custom kong configuration section ' +
+                    `or place the file ${this.defaults.kongAdminApiCredentials.fileName} ` +
+                    `in any one of this folder ${this.defaults.kongAdminApiCredentials.defaultPaths.join(', ')}`);
+            }
+
 
             // eslint-disable-next-line
             const kongAdminApiCredentials = utils.readJsonFile(kongAdminApiCredentialsFilePath);
@@ -144,6 +165,7 @@ class ServerlessPlugin {
         const functionDef = functions[functionName] || {};
 
         (functionDef.events || []).forEach(event => {
+            /* istanbul ignore next */
             if (event.kong) {
                 route = event.kong;
             }
@@ -163,6 +185,7 @@ class ServerlessPlugin {
         Object.keys(functions).forEach(key => {
             const functionDef = functions[key];
             functionDef.events.forEach(event => {
+                /* istanbul ignore next */
                 if (event.kong) {
                     routes.push(event.kong);
                 }
@@ -173,13 +196,59 @@ class ServerlessPlugin {
     }
 
     /**
+     * This function is register with the life cycle hook "kong:create-service:create-service"
+     * The service name and plugin configurations will be read from selverless custom config section.
      * Create Service
-     * @param serviceName - The service name.
-     * @param upstreamUrl -  The url of the upstream server
      * @returns {Promise<void>}
      */
     async createService() {
         let result;
+
+        try {
+            const { service } = ((this.serverless.service.custom || {}).kong || {});
+
+            if (!service) {
+                throw new Error('Service configuration is missing in kong settings. Configure it in serverless custom kong section');
+            }
+
+            if (!service.name) {
+                throw new Error('Missing required "name" field in kong service configuration.');
+            }
+
+            const isServiceExist = await this.kongAdminApi.isServiceExist({ serviceName: service.name });
+
+            if (!isServiceExist) {
+                this.cli.log(`Creating a service ${service.name}`);
+                result = await this.kongAdminApi.createService({
+                    serviceName: service.name, upstreamUrl: this.defaults.upstreamUrl
+                });
+
+                const plugins = service.plugins || [];
+                for (let pluginIndex = 0; pluginIndex < plugins.length; pluginIndex++) {
+                    const plugin = plugins[pluginIndex];
+                    this.cli.log(`creating plugin ${plugin.name}`);
+                    await this.kongAdminApi.createPluginRequestToService({
+                        serviceName: service.name, pluginConfig: plugin
+                    });
+                }
+            } else {
+                result = { statusCode: 400, error: `The service "${service.name}" is already exist` };
+                this.cli.log(result.error);
+            }
+        } catch (e) {
+            throw e;
+        }
+        return result;
+    }
+
+    /**
+     * This function is register with the life cycle hook "kong:update-service:update-service"
+     * The service name and plugin configurations will be read from selverless custom config section.
+     * Update Service
+     * @returns {Promise<void>}
+     */
+    async updateService() {
+        const result = {};
 
         const { service } = ((this.serverless.service.custom || {}).kong || {});
 
@@ -193,13 +262,31 @@ class ServerlessPlugin {
 
         const isServiceExist = await this.kongAdminApi.isServiceExist({ serviceName: service.name });
 
-        if (!isServiceExist) {
-            this.cli.log(`Creating a service ${service.name}`);
-            result = await this.kongAdminApi.createService({
-                serviceName: service.name, upstreamUrl: defaults.upstreamUrl
-            });
+        if (isServiceExist) {
+            this.cli.log(`Updating a service ${service.name}`);
+            const plugins = service.plugins || [];
+            for (let pluginIndex = 0; pluginIndex < plugins.length; pluginIndex++) {
+                const pluginConfig = plugins[pluginIndex];
+                this.cli.log(`Updating plugin ${pluginConfig.name}`);
+                const response = await this.kongAdminApi.getPluginByNameRequestToService({
+                    serviceName: service.name, pluginName: pluginConfig.name
+                });
+                const plugin = response.result || null;
+
+                if (plugin) {
+                    this.cli.log(`Updating plugin ${pluginConfig.name}`);
+                    await this.kongAdminApi.updatePlugin({ pluginId: plugin.id, pluginConfig });
+                } else {
+                    this.cli.log(`Creating plugin ${pluginConfig.name}`);
+                    await this.kongAdminApi.createPluginRequestToService({
+                        serviceName: service.name, pluginConfig
+                    });
+                }
+            }
+            result.statusCode = 200;
         } else {
-            this.cli.log(`The service "${service.name}" is already exist`);
+            result.statusCode = 404;
+            this.cli.log(`There is no service with this name "${service.name}".`);
         }
 
         return result;
@@ -246,8 +333,8 @@ class ServerlessPlugin {
 
     /**
      * This function is register with the life cycle hook "kong:create-routes:create-routes"
-     * The input params can be passed from commandline (e.g. sls kong create-routes -n example-function-1)
-     * The input param function-name is an optional one. You can pass it from command line using  --function-name or -n
+     * The input params can be passed from commandline (e.g. sls kong create-routes -f example-function-1)
+     * The input param function-name is an optional one. You can pass it from command line using  --function-name or -f
      *
      * Read route configurations from serverless config file and create routes
      * @returns {Promise<Array[]>}
@@ -291,8 +378,8 @@ class ServerlessPlugin {
 
     /**
      * This function is register with the life cycle hook "kong:update-route:update-route".
-     * The input params can be passed from commandline (e.g.  sls kong update-route -n example-service-1)
-     * Function name is required field for this function. You can pass it from command line using  --function-name or -n
+     * The input params can be passed from commandline (e.g.  sls kong update-route -f example-service-1)
+     * Function name is required field for this function. You can pass it from command line using  --function-name or -f
      * This function will read the route configuration from serverless config
      * @returns {Promise<object|null>}
      */
@@ -341,8 +428,8 @@ class ServerlessPlugin {
 
     /**
      * This function is register with the life cycle hook "kong:remove-route:remove-route".
-     * The input params can be passed from commandline (e.g.  sls kong remove-route -n example-function-1)
-     * Function name is required for this function. You can pass it from command line using  --function-name or -n
+     * The input params can be passed from commandline (e.g.  sls kong remove-route -f example-function-1)
+     * Function name is required for this function. You can pass it from command line using  --function-name or -f
      * This function will remove route from Kong.
      * @returns {Promise<object|null>}
      */

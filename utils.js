@@ -54,19 +54,23 @@ const resolvePath = pathToResolve => {
     let resolvedPath;
 
     if (!pathToResolve) {
-        resolvedPath = pathToResolve;
+        return pathToResolve;
+    }
+
+    if (path.isAbsolute(pathToResolve)) {
+        return pathToResolve;
     }
 
     if (pathToResolve === '~') {
-        resolvedPath = homeDir;
+        return homeDir;
     }
 
-    if (pathToResolve.slice(0, 2) !== '~/') {
-        resolvedPath = pathToResolve;
-    }
+    const startWith = pathToResolve.slice(0, 2);
 
-    if (!resolvedPath) {
+    if (startWith === '~/') {
         resolvedPath = path.join(homeDir, pathToResolve.slice(2));
+    } else {
+        resolvedPath = path.join(process.cwd(), pathToResolve);
     }
 
     return resolvedPath;
@@ -77,7 +81,7 @@ const findFile = (searchDirectories, fileName) => {
     for (let index = 0; index < searchDirectories.length; index++) {
         const resolvedPath = resolvePath(path.join(searchDirectories[index], fileName));
         if (fs.existsSync(resolvedPath)) {
-            filePath = filePath[index];
+            filePath = resolvedPath;
             break;
         }
     }
@@ -96,7 +100,7 @@ const readJsonFile = filePath => {
     let jsonContent = null;
 
     if (!filePath || !fs.existsSync(filePath)) {
-        throw new Error(`Invalid file path ${filePath}`);
+        throw new Error(`Invalid file path ${filePath || ''}`);
     }
 
     try {
