@@ -6,6 +6,7 @@ const defaultHeaders = { 'Content-Type': 'application/json' };
 
 const requestHandler = protocol => {
     const httpLibs = { 'http:': http, 'https:': https };
+    /* istanbul ignore next */
     return httpLibs[protocol] || http;
 };
 
@@ -66,6 +67,7 @@ const request = async ({
                     return;
                 }
 
+                /* istanbul ignore else */
                 if (response.statusCode !== 200) {
                     reject(JSON.stringify(resp));
                 }

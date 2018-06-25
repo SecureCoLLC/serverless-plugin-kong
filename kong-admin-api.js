@@ -233,14 +233,17 @@ class KongAdminApi {
         const paths = (routeConfig.paths && routeConfig.paths.sort().join(',')) || '';
         const methods = (routeConfig.methods && routeConfig.methods.sort().join(',')) || '';
 
+        /* istanbul ignore else */
         if (hosts) {
             fields.push(hosts);
         }
 
+        /* istanbul ignore else */
         if (paths) {
             fields.push(paths);
         }
 
+        /* istanbul ignore else */
         if (methods) {
             fields.push(methods);
         }
@@ -294,6 +297,7 @@ class KongAdminApi {
 
 
             const res = await this.requestHandler({ path: `/services/${serviceName}/routes`, method: 'GET' });
+            /* istanbul ignore next */
             const routes = ((res.result || {}).data || []).filter(route => {
                 const routeKey = this.generateUniqueKeyForRoute({ routeConfig: route });
                 return requestedRouteKey === routeKey;
@@ -540,6 +544,7 @@ class KongAdminApi {
             }
 
             const res = await this.requestHandler({ path: `/services/${serviceName}/plugins`, method: 'GET' });
+            /* istanbul ignore next */
             const filteredPlugin = ((res.result || {}).data || []).filter(plugin => plugin.name === pluginName);
 
             const plugin = filteredPlugin[0] || null;
@@ -573,6 +578,7 @@ class KongAdminApi {
 
             const plugins = await this.requestHandler({ path: `/routes/${routeId}/plugins`, method: 'GET' });
 
+            /* istanbul ignore next */
             const filteredPlugin = ((plugins.result || {}).data || []).filter(plugin => plugin.name === pluginName);
 
             const plugin = filteredPlugin[0] || null;
@@ -627,6 +633,7 @@ class KongAdminApi {
             }
 
             const plugins = await this.requestHandler({ path: `/services/${serviceName}/plugins`, method: 'GET' });
+            /* istanbul ignore next */
             const filteredPlugin = ((plugins.result || {}).data || []).filter(plugin => plugin.name === pluginName);
 
             const plugin = filteredPlugin[0] || null;

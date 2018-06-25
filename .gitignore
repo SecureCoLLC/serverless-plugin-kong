@@ -8,7 +8,6 @@ pids/*
 
 # Build artifacts
 .nyc_output/
-coverage/
 public/
 
 # Common no-no files to commit

@@ -83,6 +83,10 @@ Add the config to your custom tag of serverless.yml,
 
 Command to register lambda functions
 
+sls kong create-service 
+
+sls kong update-service
+
 sls kong create-routes --function-name example-function-1
 
 sls kong update-route --function-name example-function-1

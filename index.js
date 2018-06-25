@@ -76,15 +76,16 @@ const commands = {
 
 class ServerlessPlugin {
     constructor(serverless, options) {
-        const adminCredentials = ((serverless.service.custom || {}).kong || {}).admin_credentials || {};
+        this.serverless = serverless || {};
+        this.service = this.serverless.service || {};
+        this.kong = (this.service.custom || {}).kong || {};
 
+        const adminCredentials = this.kong.admin_credentials || {};
 
-        this.serverless = serverless;
-        this.cli = serverless.cli;
-        this.options = options;
+        this.cli = this.serverless.cli || {};
+        this.options = options || {};
 
         this.defaults = defaults;
-        this.defaultKongAdminApiCredentialsProfile = 'default';
 
         this.commands = commands;
 
@@ -99,7 +100,7 @@ class ServerlessPlugin {
 
         this.kongAdminApiCredentialConfig = {
             path: adminCredentials.file,
-            profile: adminCredentials.profile || this.defaultKongAdminApiCredentialsProfile
+            profile: adminCredentials.profile || this.defaults.kongAdminApiCredentials.profile
         };
 
         const kongAdminApiCredentials = this.getKongAdminApiCredentials();
@@ -156,7 +157,7 @@ class ServerlessPlugin {
      */
     getConfigurationByFunctionName(functionName) {
         let route = null;
-        const functions = this.serverless.service.functions || {};
+        const functions = this.service.functions || {};
 
         if (!functionName) {
             throw new Error('Missing required "functionName" parameter');
@@ -165,7 +166,7 @@ class ServerlessPlugin {
         const functionDef = functions[functionName] || {};
 
         (functionDef.events || []).forEach(event => {
-            /* istanbul ignore next */
+            /* istanbul ignore else */
             if (event.kong) {
                 route = event.kong;
             }
@@ -180,12 +181,12 @@ class ServerlessPlugin {
      */
     getConfigurations() {
         const routes = [];
-        const functions = this.serverless.service.functions || {};
+        const functions = this.service.functions || {};
 
         Object.keys(functions).forEach(key => {
             const functionDef = functions[key];
             functionDef.events.forEach(event => {
-                /* istanbul ignore next */
+                /* istanbul ignore else */
                 if (event.kong) {
                     routes.push(event.kong);
                 }
@@ -205,7 +206,7 @@ class ServerlessPlugin {
         let result;
 
         try {
-            const { service } = ((this.serverless.service.custom || {}).kong || {});
+            const { service } = this.kong;
 
             if (!service) {
                 throw new Error('Service configuration is missing in kong settings. Configure it in serverless custom kong section');
@@ -250,7 +251,7 @@ class ServerlessPlugin {
     async updateService() {
         const result = {};
 
-        const { service } = ((this.serverless.service.custom || {}).kong || {});
+        const { service } = this.kong;
 
         if (!service) {
             throw new Error('Service configuration is missing in kong settings. Configure it in serverless custom kong section');
@@ -323,6 +324,7 @@ class ServerlessPlugin {
         if (!route) {
             this.cli.log(`Creating a route. ${JSON.stringify(routeConfig)}`);
             const response = await this.kongAdminApi.createRoute({ serviceName, routeConfig: kongRouteConfig.config });
+            /* istanbul ignore next */
             route = ((response || {}).result || {});
         } else {
             this.cli.log(`The Route "${JSON.stringify(routeConfig)}" is already exist in Kong`);
@@ -340,7 +342,7 @@ class ServerlessPlugin {
      * @returns {Promise<Array[]>}
      */
     async createRoutes() {
-        const createdRoutes = [];
+        const result = { statusCode: 200, createdRoutes: [] };
 
         try {
             let routes = [];
@@ -359,7 +361,9 @@ class ServerlessPlugin {
                 const isServiceExist = await this.kongAdminApi.isServiceExist({ serviceName: route.service });
 
                 if (!isServiceExist) {
-                    throw new Error(`There is no service exist with this name ${route.service}`);
+                    result.statusCode = 404;
+                    result.error = `There is no service exist with this name ${route.service}`;
+                    throw new Error(result.error);
                 }
 
                 const res = await this.createRoute({
@@ -367,13 +371,13 @@ class ServerlessPlugin {
                     routeConfig: route
                 });
 
-                createdRoutes.push(res);
+                result.createdRoutes.push(res);
             }
         } catch (e) {
             this.cli.log(e);
         }
 
-        return createdRoutes;
+        return result;
     }
 
     /**
@@ -384,13 +388,15 @@ class ServerlessPlugin {
      * @returns {Promise<object|null>}
      */
     async updateRoute() {
-        let response = null;
+        let response = { statusCode: 200 };
         try {
             const functionName = this.options['function-name'];
             const nonInteractiveMode = this.options['non-interactive-mode'];
             const routeConfig = this.getConfigurationByFunctionName(functionName);
             if (!routeConfig) {
-                throw new Error(`There is function with this name "${functionName}"`);
+                response.statusCode = 404;
+                response.error = `There is no function with this name "${functionName}"`;
+                throw new Error(response.error);
             }
 
             // Construct route config object in the format the kong admin api expect.
@@ -403,6 +409,7 @@ class ServerlessPlugin {
 
             const route = (grResponse && grResponse.result) || null;
             if (route) {
+                /* istanbul ignore next */
                 if (!nonInteractiveMode) {
                     const answer = await utils.confirm(`Do you want to update the ${functionName}'s route ${JSON.stringify(routeConfig)}? \nEnter "YES" to update: `);
 
@@ -411,13 +418,14 @@ class ServerlessPlugin {
                     }
                 }
 
-
                 this.cli.log(`Updating route. ${JSON.stringify(routeConfig)}`);
                 response = await this.kongAdminApi.updateRoute({
                     routeId: route.id, routeConfig: kongRouteConfig.config
                 });
             } else {
-                this.cli.log(`There is no route entry exist with this config "${JSON.stringify(routeConfig)}" in Kong`);
+                response.statusCode = 404;
+                response.error = `There is no route entry exist with this config "${JSON.stringify(routeConfig)}" in Kong`
+                throw new Error(response.error);
             }
         } catch (e) {
             this.cli.log(e);
@@ -434,16 +442,17 @@ class ServerlessPlugin {
      * @returns {Promise<object|null>}
      */
     async deleteRoute() {
-        let response = null;
+        let response = { statusCode: 200 };
         try {
             const functionName = this.options['function-name'];
             const nonInteractiveMode = this.options['non-interactive-mode'];
             const routeConfig = this.getConfigurationByFunctionName(functionName);
 
             if (!routeConfig) {
-                return response;
+                response.statusCode = 404;
+                response.error = `There is no function with this name "${functionName}"`;
+                throw new Error(response.error);
             }
-
 
             // Construct route config object in the format the kong admin api expect.
             const kongRouteConfig = utils.buildRouteConfig(routeConfig);
@@ -456,6 +465,7 @@ class ServerlessPlugin {
             const route = (grResponse && grResponse.result) || null;
 
             if (route) {
+                /* istanbul ignore next */
                 if (!nonInteractiveMode) {
                     const answer = await utils.confirm(`Do you want to remove the ${functionName}'s route ${JSON.stringify(routeConfig)}? \nEnter "YES" to remove: `);
 
@@ -467,7 +477,9 @@ class ServerlessPlugin {
                 this.cli.log(`Removing route. ${JSON.stringify(routeConfig)}`);
                 response = await this.kongAdminApi.deleteRoute({ routeId: route.id });
             } else {
-                this.cli.log(`There is no route entry exist with this config "${JSON.stringify(routeConfig)}" in Kong`);
+                response.statusCode = 404;
+                response.error = `There is no route entry exist with this config "${JSON.stringify(routeConfig)}" in Kong`;
+                throw new Error(response.error);
             }
         } catch (e) {
             this.cli.log(e);

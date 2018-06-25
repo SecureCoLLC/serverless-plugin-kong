@@ -3,6 +3,7 @@ const path = require('path');
 const readline = require('readline');
 
 // Helper function to get an approval before do an action
+/* istanbul ignore next */
 const confirm = message => new Promise(resolve => {
     const rl = readline.createInterface({
         input: process.stdin,
@@ -17,29 +18,32 @@ const confirm = message => new Promise(resolve => {
 
 const buildRouteConfig = config => {
     if (!config) {
-        return config;
+        return config || null;
     }
 
     // Construct route config object in the format the kong admin api expect.
     const route = {};
     route.config = Object.assign({}, config);
 
+    /* istanbul ignore else */
     if (config.service) {
         route.service = config.service;
         delete route.config.service;
     }
 
-
+    /* istanbul ignore else */
     if (config.path) {
         route.config.paths = [config.path];
         delete route.config.path;
     }
 
+    /* istanbul ignore else */
     if (config.method) {
         route.config.methods = [config.method.toUpperCase()];
         delete route.config.method;
     }
 
+    /* istanbul ignore else */
     if (config.host) {
         route.config.hosts = [config.host];
         delete route.config.host;
@@ -50,6 +54,7 @@ const buildRouteConfig = config => {
 
 
 const resolvePath = pathToResolve => {
+    /* istanbul ignore next */
     const homeDir = process.env[(process.platform === 'win32') ? 'USERPROFILE' : 'HOME'];
     let resolvedPath;
 

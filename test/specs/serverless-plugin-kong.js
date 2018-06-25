@@ -14,14 +14,6 @@ const ServerlessPluginKong = require('../../index');
 
 const serverlessPluginKong = new ServerlessPluginKong(serverless, {});
 
-serverlessPluginKong.defaults = {
-    kongAdminApiCredentials: {
-        fileName: 'credentials.json',
-        defaultPaths: ['./test/data/.kong', '~/.kong']
-    },
-    upstreamUrl: 'http://127.0.0.1:80/'
-};
-
 // Helper function to handle exceptions with promise/async. Chai throw assertion is not working with promise/async.
 const asyncThrowAssertion = async (fn, expectedMessage) => {
     if (!fn || typeof fn !== 'function') {
@@ -46,6 +38,18 @@ describe('Serverless Plugin Kong', () => {
     const testRouteConfig = { host: 'example.com', path: '/users', method: 'GET' };
 
     serverlessPluginKong.serverless.service.custom.kong.service.name = testServiceName;
+
+    it('checking functions without serverless config', () => {
+        const serverlessKongPlugin = new ServerlessPluginKong();
+        expect(serverlessKongPlugin.kongAdminApiCredentialConfig.profile).to
+            .equal(serverlessKongPlugin.defaults.kongAdminApiCredentials.profile);
+
+        const route = serverlessKongPlugin.getConfigurationByFunctionName('test');
+        expect(route).to.equal(null);
+
+        const routes = serverlessKongPlugin.getConfigurations();
+        expect(routes.length).to.equal(0);
+    });
 
     it('should fetch kong admin api credentials', () => {
         const kongAdminApiCredentials = serverlessPluginKong.getKongAdminApiCredentials();
@@ -219,6 +223,31 @@ describe('Serverless Plugin Kong', () => {
         });
     });
 
+    it('should create a service and update it without plugins', async () => {
+        const currentServiceConfig = Object.assign({}, serverlessPluginKong.kong.service);
+        serverlessPluginKong.kong.service = {
+            name: `${Date.now()}`
+        };
+
+        return serverlessPluginKong.createService().then(result => {
+            expect(result.statusCode).to.equal(201);
+            expect(result.result.id).exist();
+
+            return serverlessPluginKong.updateService();
+        }).then(() => {
+            serverlessPluginKong.kong.service = Object.assign({}, currentServiceConfig);
+        });
+    });
+
+    it('should create route function throw exception without required params', async () => {
+        await asyncThrowAssertion(() => serverlessPluginKong.createRoute({}), 'Missing required "serviceName" parameter.');
+        await asyncThrowAssertion(() => serverlessPluginKong.createRoute({ serviceName: 'test' }), 'Missing required "routeConfig" parameter.');
+        await asyncThrowAssertion(
+            () => serverlessPluginKong.createRoute({ serviceName: 'test', routeConfig: {} }),
+            'At least one of these fields must be non-empty'
+        );
+    });
+
     it('should create a route', () => serverlessPluginKong.createRoute({ serviceName: testServiceName, routeConfig: testRouteConfig }).then(result => {
         expect(result).exist();
         expect(result.id).exist();
@@ -226,7 +255,41 @@ describe('Serverless Plugin Kong', () => {
 
     it('should create routes by reading serverless config', () => serverlessPluginKong.createRoutes().then(result => {
         expect(result).exist();
+        expect(result.statusCode).to.equal(200);
+        expect(result.createdRoutes.length).to.above(0);
     }));
+
+    it('should create a route with function name as input param', () => {
+        serverlessPluginKong.options['function-name'] = 'test-user';
+        return serverlessPluginKong.createRoutes().then(result => {
+            expect(result).exist();
+            expect(result.statusCode).to.equal(200);
+            expect(result.createdRoutes.length).to.above(0);
+        });
+    });
+
+    it('should the create routes function return 404 if service is not exist', () => {
+        serverlessPluginKong.options['function-name'] = 'test-service-404';
+        serverlessPluginKong.service.functions[serverlessPluginKong.options['function-name']] = {
+            handler: 'functions/test/product.entry',
+            events: [
+                {
+                    kong: {
+                        service: `${Date.now()}`,
+                        path: '/products',
+                        method: 'get'
+                    }
+                }
+            ],
+            timeout: 3,
+            warmup: true
+        };
+
+        return serverlessPluginKong.createRoutes().then(result => {
+            expect(result).exist();
+            expect(result.statusCode).to.equal(404);
+        });
+    });
 
     it('should update route', () => {
         serverlessPluginKong.serverless.service.functions['test-user'].events[0].kong.preserve_host = true;
@@ -238,11 +301,74 @@ describe('Serverless Plugin Kong', () => {
         });
     });
 
+    it('should the update route function return 404 if the given function name is not configured in serverless config', () => {
+        serverlessPluginKong.options['function-name'] = `${Date.now}`;
+
+        serverlessPluginKong.options['non-interactive-mode'] = true;
+        return serverlessPluginKong.updateRoute().then(result => {
+            expect(result.statusCode).to.equal(404);
+        });
+    });
+
+    it('should the update route function return 404 if the given route config is not exist in kong', () => {
+        serverlessPluginKong.options['function-name'] = `${Date.now}`;
+        serverlessPluginKong.service.functions[serverlessPluginKong.options['function-name']] = {
+            handler: 'functions/test/product.entry',
+            events: [
+                {
+                    kong: {
+                        service: 'test-service',
+                        path: `/products${Date.now()}`,
+                        method: 'get'
+                    }
+                }
+            ],
+            timeout: 3,
+            warmup: true
+        };
+
+        serverlessPluginKong.options['non-interactive-mode'] = true;
+        return serverlessPluginKong.updateRoute().then(result => {
+            expect(result.statusCode).to.equal(404);
+        });
+    });
+
     it('should delete route', () => {
         serverlessPluginKong.options['function-name'] = 'test-user';
         serverlessPluginKong.options['non-interactive-mode'] = true;
         return serverlessPluginKong.deleteRoute().then(result => {
             expect(result.statusCode).to.equal(204);
+        });
+    });
+
+    it('should return 404 if the given function name is not configured', () => {
+        serverlessPluginKong.options['function-name'] = `${Date.now()}`;
+        serverlessPluginKong.options['non-interactive-mode'] = true;
+        return serverlessPluginKong.deleteRoute().then(result => {
+            expect(result.statusCode).to.equal(404);
+        });
+    });
+
+    it('should return 404 if the route config is missing', () => {
+        serverlessPluginKong.options['function-name'] = `${Date.now()}`;
+        serverlessPluginKong.service.functions[serverlessPluginKong.options['function-name']] = {
+            handler: 'functions/test/product.entry',
+            events: [
+                {
+                    kong: {
+                        service: 'test-service',
+                        path: `/products${Date.now()}`,
+                        method: 'get'
+                    }
+                }
+            ],
+            timeout: 3,
+            warmup: true
+        };
+
+        serverlessPluginKong.options['non-interactive-mode'] = true;
+        return serverlessPluginKong.deleteRoute().then(result => {
+            expect(result.statusCode).to.equal(404);
         });
     });
 });
