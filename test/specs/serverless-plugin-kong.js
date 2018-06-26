@@ -5,33 +5,17 @@ chai.use(dirtyChai);
 
 const { expect } = chai;
 
-const serverless = { cli: { log: () => {} } };
-// const serverless = { cli: console };
-
-serverless.service = require('../data/serverless-config');
-
+const chaiHelper = require('../chai-helper');
 const ServerlessPluginKong = require('../../index');
+const serverlessConfig = require('../data/serverless-config');
+
+const serverless = {
+    cli: { log: () => {} },
+    service: serverlessConfig
+};
+
 
 const serverlessPluginKong = new ServerlessPluginKong(serverless, {});
-
-// Helper function to handle exceptions with promise/async. Chai throw assertion is not working with promise/async.
-const asyncThrowAssertion = async (fn, expectedMessage) => {
-    if (!fn || typeof fn !== 'function') {
-        throw new Error(`This is not a function ${fn}`);
-    }
-
-    let errorMessage;
-
-    await fn().catch(e => {
-        errorMessage = (e && e.message) || e;
-    });
-
-    expect(() => {
-        if (errorMessage) {
-            throw new Error(errorMessage);
-        }
-    }).to.throw(expectedMessage);
-};
 
 describe('Serverless Plugin Kong', () => {
     const testServiceName = `${Date.now()}`;
@@ -111,17 +95,18 @@ describe('Serverless Plugin Kong', () => {
         expect(config.length).above(0);
     });
 
-    it('should create a service', () => serverlessPluginKong.createService().then(result => {
-        expect(result.statusCode).to.equal(201);
-        expect(result.result.id).exist();
-    }));
+    it('should create a service', async () =>  {
+        const createServiceResponse = await serverlessPluginKong.createService();
+        expect(createServiceResponse.statusCode).to.equal(201);
+        expect(createServiceResponse.result.id).exist();
+    });
 
     it('should throw an error if service is not configured', async () => {
         const serviceConfig = Object.assign({}, serverlessPluginKong.serverless.service.custom.kong.service);
 
         serverlessPluginKong.serverless.service.custom.kong.service = null;
 
-        await asyncThrowAssertion(() => serverlessPluginKong.createService(), 'Service configuration is missing');
+        await chaiHelper.asyncThrowAssertion(() => serverlessPluginKong.createService(), 'Service configuration is missing');
         serverlessPluginKong.serverless.service.custom.kong.service = serviceConfig;
     });
 
@@ -130,7 +115,7 @@ describe('Serverless Plugin Kong', () => {
 
         serverlessPluginKong.serverless.service.custom.kong.service.name = null;
 
-        await asyncThrowAssertion(() => serverlessPluginKong.createService(), 'Missing required "name" field');
+        await chaiHelper.asyncThrowAssertion(() => serverlessPluginKong.createService(), 'Missing required "name" field');
         serverlessPluginKong.serverless.service.custom.kong.service.name = serviceName;
     });
 
@@ -152,7 +137,7 @@ describe('Serverless Plugin Kong', () => {
         serverlessPluginKong.serverless.service.custom.kong.service.name = currentServiceName;
     });
 
-    it('should update a service with new plugin config', () => {
+    it('should update a service with new plugin config', async () => {
         const newPlugin = {
             name: 'aws-lambda',
             config: {
@@ -164,17 +149,17 @@ describe('Serverless Plugin Kong', () => {
         };
         serverlessPluginKong.serverless.service.custom.kong.service.plugins.push(newPlugin);
 
-        return serverlessPluginKong.updateService().then(result => {
-            expect(result.statusCode).to.equal(200);
-            return serverlessPluginKong.kongAdminApi.getPluginByNameRequestToService({
-                serviceName: serverlessPluginKong.serverless.service.custom.kong.service.name,
-                pluginName: newPlugin.name
-            });
-        }).then(result => {
-            expect(result).exist();
-            expect(result.result.id).exist();
-            expect(result.result.name).to.equal(newPlugin.name);
+        const updateServiceResponse = await serverlessPluginKong.updateService();
+        expect(updateServiceResponse.statusCode).to.equal(200);
+
+        const getPluginResponse = await serverlessPluginKong.kongAdminApi.getPluginByNameRequestToService({
+            serviceName: serverlessPluginKong.serverless.service.custom.kong.service.name,
+            pluginName: newPlugin.name
         });
+
+        expect(getPluginResponse).exist();
+        expect(getPluginResponse.result.id).exist();
+        expect(getPluginResponse.result.name).to.equal(newPlugin.name);
     });
 
     it('should throw an error if service is not configured when requesting for update', async () => {
@@ -182,7 +167,7 @@ describe('Serverless Plugin Kong', () => {
 
         serverlessPluginKong.serverless.service.custom.kong.service = null;
 
-        await asyncThrowAssertion(() => serverlessPluginKong.updateService(), 'Service configuration is missing');
+        await chaiHelper.asyncThrowAssertion(() => serverlessPluginKong.updateService(), 'Service configuration is missing');
         serverlessPluginKong.serverless.service.custom.kong.service = serviceConfig;
     });
 
@@ -191,7 +176,7 @@ describe('Serverless Plugin Kong', () => {
 
         serverlessPluginKong.serverless.service.custom.kong.service.name = null;
 
-        await asyncThrowAssertion(() => serverlessPluginKong.updateService(), 'Missing required "name" field');
+        await chaiHelper.asyncThrowAssertion(() => serverlessPluginKong.updateService(), 'Missing required "name" field');
         serverlessPluginKong.serverless.service.custom.kong.service.name = serviceName;
     });
 
@@ -207,20 +192,20 @@ describe('Serverless Plugin Kong', () => {
         serverlessPluginKong.serverless.service.custom.kong.service.name = currentServiceName;
     });
 
-    it('should update the plugin enabled in service', () => {
+    it('should update the plugin enabled in service', async () => {
         const plugin = serverlessPluginKong.serverless.service.custom.kong.service.plugins[0];
         plugin.config.credentials = false;
 
-        return serverlessPluginKong.updateService().then(result => {
-            expect(result.statusCode).to.equal(200);
-            return serverlessPluginKong.kongAdminApi.getPluginByNameRequestToService({
-                serviceName: serverlessPluginKong.serverless.service.custom.kong.service.name,
-                pluginName: plugin.name
-            });
-        }).then(result => {
-            expect(result).exist();
-            expect(result.result.config.credentials).to.equal(false);
+        const updateServiceResponse = await serverlessPluginKong.updateService();
+        expect(updateServiceResponse.statusCode).to.equal(200);
+
+        const getPluginResponse = await serverlessPluginKong.kongAdminApi.getPluginByNameRequestToService({
+            serviceName: serverlessPluginKong.serverless.service.custom.kong.service.name,
+            pluginName: plugin.name
         });
+
+        expect(getPluginResponse).exist();
+        expect(getPluginResponse.result.config.credentials).to.equal(false);
     });
 
     it('should create a service and update it without plugins', async () => {
@@ -229,46 +214,51 @@ describe('Serverless Plugin Kong', () => {
             name: `${Date.now()}`
         };
 
-        return serverlessPluginKong.createService().then(result => {
-            expect(result.statusCode).to.equal(201);
-            expect(result.result.id).exist();
+        const createServiceResponse = await serverlessPluginKong.createService();
+        expect(createServiceResponse.statusCode).to.equal(201);
+        expect(createServiceResponse.result.id).exist();
 
-            return serverlessPluginKong.updateService();
-        }).then(() => {
-            serverlessPluginKong.kong.service = Object.assign({}, currentServiceConfig);
-        });
+        const updateServiceResponse = await serverlessPluginKong.updateService();
+        expect(updateServiceResponse.statusCode).to.equal(200);
+
+        serverlessPluginKong.kong.service = Object.assign({}, currentServiceConfig);
+
     });
 
     it('should create route function throw exception without required params', async () => {
-        await asyncThrowAssertion(() => serverlessPluginKong.createRoute({}), 'Missing required "serviceName" parameter.');
-        await asyncThrowAssertion(() => serverlessPluginKong.createRoute({ serviceName: 'test' }), 'Missing required "routeConfig" parameter.');
-        await asyncThrowAssertion(
+        await chaiHelper.asyncThrowAssertion(() => serverlessPluginKong.createRoute({}), 'Missing required "serviceName" parameter.');
+        await chaiHelper.asyncThrowAssertion(() => serverlessPluginKong.createRoute({ serviceName: 'test' }), 'Missing required "routeConfig" parameter.');
+        await chaiHelper.asyncThrowAssertion(
             () => serverlessPluginKong.createRoute({ serviceName: 'test', routeConfig: {} }),
             'At least one of these fields must be non-empty'
         );
     });
 
-    it('should create a route', () => serverlessPluginKong.createRoute({ serviceName: testServiceName, routeConfig: testRouteConfig }).then(result => {
-        expect(result).exist();
-        expect(result.id).exist();
-    }));
-
-    it('should create routes by reading serverless config', () => serverlessPluginKong.createRoutes().then(result => {
-        expect(result).exist();
-        expect(result.statusCode).to.equal(200);
-        expect(result.createdRoutes.length).to.above(0);
-    }));
-
-    it('should create a route with function name as input param', () => {
-        serverlessPluginKong.options['function-name'] = 'test-user';
-        return serverlessPluginKong.createRoutes().then(result => {
-            expect(result).exist();
-            expect(result.statusCode).to.equal(200);
-            expect(result.createdRoutes.length).to.above(0);
+    it('should create a route', async () =>  {
+        const createRouteResponse = await serverlessPluginKong.createRoute({
+            serviceName: testServiceName, routeConfig: testRouteConfig
         });
+        expect(createRouteResponse).exist();
+        expect(createRouteResponse.id).exist();
     });
 
-    it('should the create routes function return 404 if service is not exist', () => {
+    it('should create routes by reading serverless config', async () => {
+        const createRouteResponse = await serverlessPluginKong.createRoutes();
+        expect(createRouteResponse).exist();
+        expect(createRouteResponse.statusCode).to.equal(200);
+        expect(createRouteResponse.createdRoutes.length).to.above(0);
+    });
+
+    it('should create a route with function name as input param', async () => {
+        serverlessPluginKong.options['function-name'] = 'test-user';
+        const createRoutesResponse = await serverlessPluginKong.createRoutes();
+
+        expect(createRoutesResponse).exist();
+        expect(createRoutesResponse.statusCode).to.equal(200);
+        expect(createRoutesResponse.createdRoutes.length).to.above(0);
+    });
+
+    it('should the create routes function return 404 if service is not exist', async () => {
         serverlessPluginKong.options['function-name'] = 'test-service-404';
         serverlessPluginKong.service.functions[serverlessPluginKong.options['function-name']] = {
             handler: 'functions/test/product.entry',
@@ -285,32 +275,32 @@ describe('Serverless Plugin Kong', () => {
             warmup: true
         };
 
-        return serverlessPluginKong.createRoutes().then(result => {
-            expect(result).exist();
-            expect(result.statusCode).to.equal(404);
-        });
+        const createRoutesResponse = await serverlessPluginKong.createRoutes();
+        expect(createRoutesResponse).exist();
+        expect(createRoutesResponse.statusCode).to.equal(404);
     });
 
-    it('should update route', () => {
+    it('should update route', async () => {
         serverlessPluginKong.serverless.service.functions['test-user'].events[0].kong.preserve_host = true;
         serverlessPluginKong.options['function-name'] = 'test-user';
         serverlessPluginKong.options['non-interactive-mode'] = true;
-        return serverlessPluginKong.updateRoute().then(result => {
-            expect(result.statusCode).to.equal(200);
-            expect(result.result.preserve_host).to.equal(true);
-        });
+
+        const updateReouteResponse = await serverlessPluginKong.updateRoute();
+
+        expect(updateReouteResponse.statusCode).to.equal(200);
+        expect(updateReouteResponse.result.preserve_host).to.equal(true);
     });
 
-    it('should the update route function return 404 if the given function name is not configured in serverless config', () => {
+    it('should the update route function return 404 if the given function name is not configured in serverless config', async () => {
         serverlessPluginKong.options['function-name'] = `${Date.now}`;
 
         serverlessPluginKong.options['non-interactive-mode'] = true;
-        return serverlessPluginKong.updateRoute().then(result => {
-            expect(result.statusCode).to.equal(404);
-        });
+
+        const updateRouteResponse = await serverlessPluginKong.updateRoute();
+        expect(updateRouteResponse.statusCode).to.equal(404);
     });
 
-    it('should the update route function return 404 if the given route config is not exist in kong', () => {
+    it('should the update route function return 404 if the given route config is not exist in kong', async () => {
         serverlessPluginKong.options['function-name'] = `${Date.now}`;
         serverlessPluginKong.service.functions[serverlessPluginKong.options['function-name']] = {
             handler: 'functions/test/product.entry',
@@ -328,28 +318,28 @@ describe('Serverless Plugin Kong', () => {
         };
 
         serverlessPluginKong.options['non-interactive-mode'] = true;
-        return serverlessPluginKong.updateRoute().then(result => {
-            expect(result.statusCode).to.equal(404);
-        });
+
+        const updateRouteResponse = await serverlessPluginKong.updateRoute();
+        expect(updateRouteResponse.statusCode).to.equal(404);
     });
 
-    it('should delete route', () => {
+    it('should delete route', async () => {
         serverlessPluginKong.options['function-name'] = 'test-user';
         serverlessPluginKong.options['non-interactive-mode'] = true;
-        return serverlessPluginKong.deleteRoute().then(result => {
-            expect(result.statusCode).to.equal(204);
-        });
+
+        const deleteRouteResponse = await serverlessPluginKong.deleteRoute();
+        expect(deleteRouteResponse.statusCode).to.equal(204);
     });
 
-    it('should return 404 if the given function name is not configured', () => {
+    it('should return 404 if the given function name is not configured', async () => {
         serverlessPluginKong.options['function-name'] = `${Date.now()}`;
         serverlessPluginKong.options['non-interactive-mode'] = true;
-        return serverlessPluginKong.deleteRoute().then(result => {
-            expect(result.statusCode).to.equal(404);
-        });
+
+        const deleteRouteResponse = await serverlessPluginKong.deleteRoute();
+        expect(deleteRouteResponse.statusCode).to.equal(404);
     });
 
-    it('should return 404 if the route config is missing', () => {
+    it('should return 404 if the route config is missing', async () => {
         serverlessPluginKong.options['function-name'] = `${Date.now()}`;
         serverlessPluginKong.service.functions[serverlessPluginKong.options['function-name']] = {
             handler: 'functions/test/product.entry',
@@ -367,8 +357,8 @@ describe('Serverless Plugin Kong', () => {
         };
 
         serverlessPluginKong.options['non-interactive-mode'] = true;
-        return serverlessPluginKong.deleteRoute().then(result => {
-            expect(result.statusCode).to.equal(404);
-        });
+
+        const deleteRouteResponse = await serverlessPluginKong.deleteRoute();
+        expect(deleteRouteResponse.statusCode).to.equal(404);
     });
 });
