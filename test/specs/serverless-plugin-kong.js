@@ -35,6 +35,18 @@ describe('Serverless Plugin Kong', () => {
         expect(routes.length).to.equal(0);
     });
 
+    it('checking functions without events section in serverless config', () => {
+        const serverlessKongPlugin = new ServerlessPluginKong({ service: { functions: { test: {} } } });
+        expect(serverlessKongPlugin.kongAdminApiCredentialConfig.profile).to
+            .equal(serverlessKongPlugin.defaults.kongAdminApiCredentials.profile);
+
+        const route = serverlessKongPlugin.getConfigurationByFunctionName('test');
+        expect(route).to.equal(null);
+
+        const routes = serverlessKongPlugin.getConfigurations();
+        expect(routes.length).to.equal(0);
+    });
+
     it('should fetch kong admin api credentials', () => {
         const kongAdminApiCredentials = serverlessPluginKong.getKongAdminApiCredentials();
         expect(kongAdminApiCredentials).exist();

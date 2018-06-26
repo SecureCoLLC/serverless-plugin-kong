@@ -115,11 +115,9 @@ class ServerlessPlugin {
         let kongAdminApiCredentialsFilePath;
 
         try {
-            if (utils.isFileExist(this.kongAdminApiCredentialConfig.path)) {
+            if (this.kongAdminApiCredentialConfig.path && utils.isFileExist(this.kongAdminApiCredentialConfig.path)) {
                 kongAdminApiCredentialsFilePath = utils.resolvePath(this.kongAdminApiCredentialConfig.path);
-            }
-
-            if (!this.kongAdminApiCredentialConfig.path) {
+            } else {
                 kongAdminApiCredentialsFilePath = utils.findFile(
                     this.defaults.kongAdminApiCredentials.defaultPaths,
                     this.defaults.kongAdminApiCredentials.fileName
@@ -133,8 +131,6 @@ class ServerlessPlugin {
                     `in any one of this folder ${this.defaults.kongAdminApiCredentials.defaultPaths.join(', ')}`);
             }
 
-
-            // eslint-disable-next-line
             const kongAdminApiCredentials = utils.readJsonFile(kongAdminApiCredentialsFilePath);
 
             if (!kongAdminApiCredentials) {
@@ -185,7 +181,7 @@ class ServerlessPlugin {
 
         Object.keys(functions).forEach(key => {
             const functionDef = functions[key];
-            functionDef.events.forEach(event => {
+            (functionDef.events || []).forEach(event => {
                 /* istanbul ignore else */
                 if (event.kong) {
                     routes.push(event.kong);
@@ -363,7 +359,7 @@ class ServerlessPlugin {
                 if (!isServiceExist) {
                     result.statusCode = 404;
                     result.error = `There is no service exist with this name ${route.service}`;
-                    throw new Error(result.error);
+                    throw new Error(`There is no service exist with this name ${route.service}`);
                 }
 
                 const res = await this.createRoute({
@@ -393,6 +389,7 @@ class ServerlessPlugin {
             const functionName = this.options['function-name'];
             const nonInteractiveMode = this.options['non-interactive-mode'];
             const routeConfig = this.getConfigurationByFunctionName(functionName);
+
             if (!routeConfig) {
                 response.statusCode = 404;
                 response.error = `There is no function with this name "${functionName}"`;
@@ -408,6 +405,7 @@ class ServerlessPlugin {
             });
 
             const route = (grResponse && grResponse.result) || null;
+
             if (route) {
                 /* istanbul ignore next */
                 if (!nonInteractiveMode) {

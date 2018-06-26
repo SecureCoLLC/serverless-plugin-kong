@@ -2,7 +2,7 @@ const http = require('http');
 const https = require('https');
 const { URL } = require('url');
 
-const defaultHeaders = { 'Content-Type': 'application/json' };
+const defaults = require('./defaults');
 
 const requestHandler = protocol => {
     const httpLibs = { 'http:': http, 'https:': https };
@@ -31,7 +31,7 @@ const buildRequest = (reqUrl, method, data, headers) => {
         method: requestMethod,
         path: `${urlParts.pathname}${urlParts.search}`,
         body,
-        headers: Object.assign({}, (headers || {}), defaultHeaders)
+        headers: Object.assign({}, (headers || {}), defaults.headers)
     };
 
     return request;

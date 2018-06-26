@@ -18,7 +18,7 @@ const confirm = message => new Promise(resolve => {
 
 const buildRouteConfig = config => {
     if (!config) {
-        return config || null;
+        return null;
     }
 
     // Construct route config object in the format the kong admin api expect.
@@ -59,7 +59,7 @@ const resolvePath = pathToResolve => {
     let resolvedPath;
 
     if (!pathToResolve) {
-        return pathToResolve;
+        return null;
     }
 
     if (path.isAbsolute(pathToResolve)) {

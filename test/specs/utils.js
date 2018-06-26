@@ -13,6 +13,11 @@ describe('Helper module - Utils', () => {
         expect(result).to.equal(null);
     });
 
+    it('should return "null" if input params are not passed', () => {
+        const result = utils.resolvePath();
+        expect(result).to.equal(null);
+    });
+
     it('should return the input value if it is absolute path', () => {
         const absolutePath = '/home/ubuntu';
         const result = utils.resolvePath(absolutePath);

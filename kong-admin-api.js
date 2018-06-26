@@ -25,6 +25,7 @@ class KongAdminApi {
             url: config.adminApiUrl,
             headers: config.headers
         });
+
         this.config = config;
     }
 
