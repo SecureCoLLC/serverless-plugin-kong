@@ -23,7 +23,7 @@ class KongAdminApi {
 
         this.requestHandler = httpHelper.create({
             url: config.adminApiUrl,
-            headers: config.headers
+            headers: config.adminApiHeaders
         });
 
         this.config = config;

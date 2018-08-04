@@ -7,7 +7,7 @@
 Install the plugin from npm
 
 ```bash
-$ npm install --save serverless-plugin-kong
+$ npm install --save-dev serverless-plugin-kong
 ```
 
 Without npm
@@ -27,7 +27,7 @@ plugins:
 
 Add the config to your custom tag of serverless.yml,
 
-```yaml
+```
 # serverless.yml
 
 "custom":
@@ -67,6 +67,46 @@ Add the config to your custom tag of serverless.yml,
       ],
     
 ```
+If you are using "lambda-meta" to configure events, you can configure kong as given below
+```
+const lm = require('lambda-meta');
+const iopipe = require('@iopipe/iopipe')({ token: process.env.IOPIPE_TOKEN });
+
+module.exports = {
+    name: 'example-service',
+    description: 'Example service',
+    timeout: 3,
+    warmup: true,
+    responseHeaders: {
+        'Cache-Control': 'public, max-age=10',
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': '*'
+    },
+    kong: {
+        service: 'example-service',
+        host: 'exmaple.com',
+        path: '/users'
+        method: 'post',
+    },
+
+    inputs: {
+        apiKey: {
+            required: true,
+            type: 'String'
+        }
+    },
+
+    entry: iopipe((event, context, callback) => lm.processRequest(module.exports, event, context, callback)),
+
+    process: async (event, context) => {
+        const { apiKey } = context.params;
+
+        return true;
+    }
+};
+
+```
+
 
 ~/.kong/credentials.json
 

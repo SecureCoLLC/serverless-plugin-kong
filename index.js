@@ -354,6 +354,8 @@ class ServerlessPlugin {
             for (let routeIndex = 0; routeIndex < routes.length; routeIndex++) {
                 const route = routes[routeIndex];
 
+                route.host = route.host || this.kong.service.host;
+
                 const isServiceExist = await this.kongAdminApi.isServiceExist({ serviceName: route.service });
 
                 if (!isServiceExist) {
@@ -395,6 +397,8 @@ class ServerlessPlugin {
                 response.error = `There is no function with this name "${functionName}"`;
                 throw new Error(response.error);
             }
+
+            routeConfig.host = routeConfig.host || this.kong.service.host;
 
             // Construct route config object in the format the kong admin api expect.
             const kongRouteConfig = utils.buildRouteConfig(routeConfig);
@@ -451,6 +455,8 @@ class ServerlessPlugin {
                 response.error = `There is no function with this name "${functionName}"`;
                 throw new Error(response.error);
             }
+
+            routeConfig.host = routeConfig.host || this.kong.service.host;
 
             // Construct route config object in the format the kong admin api expect.
             const kongRouteConfig = utils.buildRouteConfig(routeConfig);
