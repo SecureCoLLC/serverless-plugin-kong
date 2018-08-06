@@ -260,21 +260,44 @@ class ServerlessPlugin {
         const isServiceExist = await this.kongAdminApi.isServiceExist({ serviceName: service.name });
 
         if (isServiceExist) {
-            this.cli.log(`Updating a service ${service.name}`);
+            this.cli.log(`Updating the service ${service.name}`);
             const plugins = service.plugins || [];
+            const pluginNames = {};
+            service.plugins.forEach(plugin => {
+                pluginNames[plugin.name] = true;
+            });
+
+            const pluginsExistInKong = await this.kongAdminApi.getPluginsRequestToService({
+                serviceName: service.name
+            });
+
+            const removedPlugins = [];
+            if (pluginsExistInKong && pluginsExistInKong.result && pluginsExistInKong.result.total) {
+                pluginsExistInKong.result.data.forEach(entry => {
+                    if (!pluginNames[entry.name]) {
+                        removedPlugins.push(entry);
+                    }
+                });
+            }
+
+            // Remove the plugins removed from config but exist in Kong
+            for (let removedPluginIndex = 0; removedPluginIndex < removedPlugins.length; removedPluginIndex++) {
+                this.cli.log(`Removing the plugin ${removedPlugins[removedPluginIndex].name}`);
+                await this.kongAdminApi.deletePlugin({ pluginId: removedPlugins[removedPluginIndex].id });
+            }
+
             for (let pluginIndex = 0; pluginIndex < plugins.length; pluginIndex++) {
                 const pluginConfig = plugins[pluginIndex];
-                this.cli.log(`Updating plugin ${pluginConfig.name}`);
                 const response = await this.kongAdminApi.getPluginByNameRequestToService({
                     serviceName: service.name, pluginName: pluginConfig.name
                 });
                 const plugin = response.result || null;
 
                 if (plugin) {
-                    this.cli.log(`Updating plugin ${pluginConfig.name}`);
+                    this.cli.log(`Updating the plugin ${pluginConfig.name}`);
                     await this.kongAdminApi.updatePlugin({ pluginId: plugin.id, pluginConfig });
                 } else {
-                    this.cli.log(`Creating plugin ${pluginConfig.name}`);
+                    this.cli.log(`Creating a plugin ${pluginConfig.name}`);
                     await this.kongAdminApi.createPluginRequestToService({
                         serviceName: service.name, pluginConfig
                     });
@@ -322,6 +345,12 @@ class ServerlessPlugin {
             const response = await this.kongAdminApi.createRoute({ serviceName, routeConfig: kongRouteConfig.config });
             /* istanbul ignore next */
             route = ((response || {}).result || {});
+            const plugins = kongRouteConfig.plugins || [];
+            for (let pluginIndex = 0; pluginIndex < plugins.length; pluginIndex++) {
+                const plugin = plugins[pluginIndex];
+                this.cli.log(`creating a plugin ${plugin.name}`);
+                await this.kongAdminApi.createPluginRequestToRoute({ routeId: route.id, pluginConfig: plugin });
+            }
         } else {
             this.cli.log(`The Route "${JSON.stringify(routeConfig)}" is already exist in Kong`);
         }
@@ -420,13 +449,56 @@ class ServerlessPlugin {
                     }
                 }
 
-                this.cli.log(`Updating route. ${JSON.stringify(routeConfig)}`);
+                this.cli.log(`Updating the route. ${JSON.stringify(routeConfig)}`);
                 response = await this.kongAdminApi.updateRoute({
                     routeId: route.id, routeConfig: kongRouteConfig.config
                 });
+
+                const pluginNames = {};
+                kongRouteConfig.plugins.forEach(plugin => {
+                    pluginNames[plugin.name] = true;
+                });
+
+                const pluginsExistInKong = await this.kongAdminApi.getPluginsRequestToRoute({
+                    routeId: route.id
+                });
+
+                const removedPlugins = [];
+                if (pluginsExistInKong && pluginsExistInKong.result && pluginsExistInKong.result.total) {
+                    pluginsExistInKong.result.data.forEach(entry => {
+                        if (!pluginNames[entry.name]) {
+                            removedPlugins.push(entry);
+                        }
+                    });
+                }
+
+                // Remove the plugins removed from config but exist in Kong
+                for (let removedPluginIndex = 0; removedPluginIndex < removedPlugins.length; removedPluginIndex++) {
+                    this.cli.log(`Removing the plugin ${removedPlugins[removedPluginIndex].name}`);
+                    await this.kongAdminApi.deletePlugin({ pluginId: removedPlugins[removedPluginIndex].id });
+                }
+
+                const plugins = kongRouteConfig.plugins || [];
+                for (let pluginIndex = 0; pluginIndex < plugins.length; pluginIndex++) {
+                    const pluginConfig = plugins[pluginIndex];
+                    const res = await this.kongAdminApi.getPluginByNameRequestToRoute({
+                        routeId: route.id, pluginName: pluginConfig.name
+                    });
+                    const plugin = res.result || null;
+
+                    if (plugin) {
+                        this.cli.log(`Updating the plugin ${pluginConfig.name}`);
+                        await this.kongAdminApi.updatePlugin({ pluginId: plugin.id, pluginConfig });
+                    } else {
+                        this.cli.log(`Creating a plugin ${pluginConfig.name}`);
+                        await this.kongAdminApi.createPluginRequestToRoute({
+                            routeId: route.id, pluginConfig
+                        });
+                    }
+                }
             } else {
                 response.statusCode = 404;
-                response.error = `There is no route entry exist with this config "${JSON.stringify(routeConfig)}" in Kong`
+                response.error = `There is no route entry exist with this config "${JSON.stringify(routeConfig)}" in Kong`;
                 throw new Error(response.error);
             }
         } catch (e) {
@@ -478,7 +550,7 @@ class ServerlessPlugin {
                     }
                 }
 
-                this.cli.log(`Removing route. ${JSON.stringify(routeConfig)}`);
+                this.cli.log(`Removing the route. ${JSON.stringify(routeConfig)}`);
                 response = await this.kongAdminApi.deleteRoute({ routeId: route.id });
             } else {
                 response.statusCode = 404;

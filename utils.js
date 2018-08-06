@@ -32,6 +32,12 @@ const buildRouteConfig = config => {
     }
 
     /* istanbul ignore else */
+    if (config.plugins) {
+        route.plugins = [...config.plugins];
+        delete route.config.plugins;
+    }
+
+    /* istanbul ignore else */
     if (config.path) {
         route.config.paths = [config.path];
         delete route.config.path;
