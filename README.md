@@ -38,6 +38,7 @@ Add the config to your custom tag of serverless.yml,
           },
           "service": {
               "name": "example-service",
+              "host": { qa: 'qa.example.com', 'prod': 'prod.example.com' }[stage],
               "plugins": [
                   {
                       "name": "cors",
@@ -61,13 +62,28 @@ Add the config to your custom tag of serverless.yml,
           "kong": {
             "service": "test-service",
             "path": "/news",
-            "method": "get"
+            "method": "get",
+            "plugins": [
+                {
+                    "name": "lambda-proxy",
+                    "config": {
+                        "aws_region": "us-east-1",
+                        "function_name": "upload-service-qa-upload",
+                        "forward_request_body": true,
+                        "forward_request_headers": true,
+                        "forward_request_method": true,
+                        "forward_request_uri": true,
+                        "keepalive": 0
+                    }
+                }
+            ]
           }
         }
       ],
     
 ```
-If you are using "lambda-meta" to configure events, you can configure kong as given below
+If you are using "lambda-meta" to configure events, you can configure kong routes as given below
+
 ```
 const lm = require('lambda-meta');
 const iopipe = require('@iopipe/iopipe')({ token: process.env.IOPIPE_TOKEN });
@@ -84,9 +100,22 @@ module.exports = {
     },
     kong: {
         service: 'example-service',
-        host: 'exmaple.com',
         path: '/users'
         method: 'post',
+        plugins: [
+            {
+                name: 'lambda-proxy',
+                config: {
+                    aws_region: 'us-east-1',
+                    function_name: 'upload-service-qa-upload',
+                    forward_request_body: true,
+                    forward_request_headers: true,
+                    forward_request_method: true,
+                    forward_request_uri: true,
+                    keepalive: 0
+                }
+            }
+        ]
     },
 
     inputs: {
@@ -104,6 +133,8 @@ module.exports = {
         return true;
     }
 };
+
+Note: The lambda-proxy is a kong plugin, you can install it from this repo "http://gitlab.paltalk.com/webng/lambda-proxy"
 
 ```
 
